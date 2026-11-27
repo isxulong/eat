@@ -1,0 +1,10 @@
+name = "eat"
+pages_build_output_dir = "public"
+compatibility_date = "2026-11-01"
+
+# D1 绑定。
+# 部署前把 database_id 换成自己的（wrangler d1 list 可查）。
+[[d1_databases]]
+binding = "DB"
+database_name = "eat-db"
+database_id = "b34bda6c-7d27-45c8-b3cb-0afe19348993"
