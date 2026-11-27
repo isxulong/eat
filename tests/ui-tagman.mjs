@@ -66,7 +66,7 @@ async function main() {
   await sleep(400);
   await evalJs(`
     (async () => {
-      document.querySelector('#tokenInput').value = 'demo';
+      document.querySelector('#tokenInput').value = 'demo1234';
       document.querySelector('#loginForm').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));
     })()
   `);

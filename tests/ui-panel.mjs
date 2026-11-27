@@ -99,7 +99,7 @@ async function main() {
       await evalJs(`
         (async () => {
           const t = document.querySelector('#tokenInput');
-          if (t) { t.value = 'demo'; document.querySelector('#loginForm').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true})); }
+          if (t) { t.value = 'demo1234'; document.querySelector('#loginForm').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true})); }
         })()
       `);
       await sleep(1400);

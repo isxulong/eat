@@ -438,8 +438,8 @@ export async function onRequest(context) {
       if (next.length > 128) return err('too_long', '新口令太长');
 
       // 已经设置过口令时，必须提供当前口令。
-      // 引导期（口令还在环境变量里）允许用环境变量口令直接设置首条：
-      // 只要 current 能通过校验，或用 Bearer 带了有效口令，就算授权。
+      // 引导期（口令还只在环境变量里）允许已登录的会话直接设置首条，
+      // 或者提供正确的环境变量口令。
       const hasOwn = Boolean(await getPassRecord(env));
       if (hasOwn) {
         if (!(await checkPass(env, String(body.current ?? '')))) {
@@ -448,7 +448,8 @@ export async function onRequest(context) {
       } else {
         const provided = String(body.current ?? '').trim();
         const byCurrent = provided && (await checkPass(env, provided));
-        if (!byCurrent && !(await canWrite(request, env))) {
+        const bySession = await canWrite(request, env);
+        if (!byCurrent && !bySession) {
           return err('bad_current', '当前口令不正确', 401);
         }
       }

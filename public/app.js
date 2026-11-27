@@ -1368,16 +1368,29 @@ async function openPassDialog() {
   el.passNext.value = '';
   el.passRepeat.value = '';
   el.passCurrent.value = '';
-  // 已经设置过自定义口令时要校验当前口令；引导期直接设
+
+  /*
+   * 显示「当前口令」的条件：
+   *   bootstrapPass === true  表示还在用环境变量里的初始口令（D1 里没有记录），
+   *   此时后端不要求 current，直接设新口令即可。
+   *   bootstrapPass === false 表示已经设过自定义口令，后端会强制校验 current。
+   *
+   * 之前这里写成 `hidden = !bootstrap`，正好反了：
+   * 用户改过一次口令后就再也看不到「当前口令」输入框，
+   * 提交空字符串 → 后端比对失败 → 一直提示「当前口令不正确」。
+   */
+  let needCurrent = true;
   try {
     const h = await api(API.health);
-    el.currentField.hidden = !h.bootstrap;
+    needCurrent = h.bootstrapPass === false;
   } catch {
-    el.currentField.hidden = false;
+    needCurrent = true;    // 拿不到就用更严格的一侧
   }
+  el.currentField.hidden = !needCurrent;
+
   el.passDlg.showModal();
   setTimeout(() => {
-    (el.currentField.hidden ? el.passNext : el.passCurrent).focus();
+    (needCurrent ? el.passCurrent : el.passNext).focus();
   }, 30);
 }
 

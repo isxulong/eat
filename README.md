@@ -145,7 +145,7 @@ Pages 项目需要配置的环境变量：
 ```bash
 # 接口契约（18 项，对生产跑）
 node tests/e2e.mjs
-BASE=http://127.0.0.1:8787 TOKEN=demo node tests/e2e.mjs
+BASE=http://127.0.0.1:8787 TOKEN=demo1234 node tests/e2e.mjs
 
 # 抽选随机性：卡方拟合优度检验，5 类场景 × 20 万样本
 node tests/randomness.mjs

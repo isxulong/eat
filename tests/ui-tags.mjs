@@ -66,6 +66,21 @@ async function main() {
   await send('Page.navigate', { url: URL_BASE });
   await sleep(2500);
 
+  // 本测试依赖 mock 的初始分类（辣的/面食/快餐），
+  // 若上一轮测试改过数据，这里会失败。先确认数据符合预期，不符就跳过并说明。
+  const shape = await evalJs(`
+    fetch('/api/wheel',{cache:'no-store'}).then(r=>r.json()).then(d => JSON.stringify({
+      options: d.options.length,
+      tags: d.tags.map(t => t.name),
+    }))
+  `);
+  const sd = JSON.parse(shape);
+  if (sd.options !== 15 || !sd.tags.includes('辣的')) {
+    console.log(`\n跳过：mock 数据已被其他测试改动（当前 ${sd.options} 项，分类 ${sd.tags.join(',')}）`);
+    console.log('请重启 dev-preview.mjs 后单独运行本测试。\n');
+    ws.close(); proc.kill(); process.exit(2);
+  }
+
   // ① 筛选条
   console.log('① 筛选条：', await evalJs(`
     JSON.stringify({
@@ -130,7 +145,7 @@ async function main() {
   await sleep(400);
   await evalJs(`
     (async () => {
-      document.querySelector('#tokenInput').value = 'demo';
+      document.querySelector('#tokenInput').value = 'demo1234';
       document.querySelector('#loginForm').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));
     })()
   `);

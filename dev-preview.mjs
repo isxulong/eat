@@ -39,7 +39,7 @@ options[4].tags = ['tag-fast'];
 options[9].tags = ['tag-noodle', 'tag-hot'];
 
 let revision = 1;
-let mockPass = 'demo';
+let mockPass = 'demo1234';   // 至少 6 位，否则无法被改回（与 /api/password 的校验保持一致）
 let bootstrap = true;
 
 /** 所有写接口都返回完整快照，与真实后端保持一致 */
