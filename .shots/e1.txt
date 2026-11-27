@@ -1,0 +1,4 @@
+[11908:1932:1127/210010.943:ERROR:components\optimization_guide\core\model_execution\performance_class.cc:109] Edge LLM: Not supported on non Desktop SKU
+[11908:10544:1127/210011.699:ERROR:chrome\browser\importer\edge_china_browsers\edge_qqbrowser_importer_utils_win.cc:165] QQBrowser user data path not found.
+[11908:1932:1127/210012.062:ERROR:chrome\browser\task_manager\providers\fallback_task_provider.cc:126] Every renderer should have at least one task provided by a primary task provider. If a "Renderer" fallback task is shown, it is a bug. If you have repro steps, please file a new bug and tag it as a dependency of crbug.com/40528867.
+265432 bytes written to file D:\GitHub\eat\.shots\desktop.png

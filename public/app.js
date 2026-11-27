@@ -281,17 +281,31 @@ function drawWheel() {
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // 文字：只有扇区够宽才画
-    if (sweep > 0.16) {
+    // 文字：够宽才画；下半圆整体翻转 180°，避免倒字
+    if (sweep > 0.24) {
+      const mid = angle + sweep / 2;
+      const norm = ((mid % TAU) + TAU) % TAU;
+      const flipped = norm > Math.PI / 2 && norm < (Math.PI * 3) / 2;
+
+      const pad = 15;
+      const maxW = R - pad - R * 0.31;          // 中心留出毂的半径
+      const fs = Math.round(Math.max(10.5, Math.min(13, R * 0.043)));
+
       ctx.save();
-      ctx.rotate(angle + sweep / 2);
-      const maxW = R * 0.66;
-      const fs = Math.max(10, Math.min(14, sweep * 26));
+      ctx.rotate(mid);
+      if (flipped) ctx.rotate(Math.PI);
+
       ctx.font = `600 ${fs}px "PingFang SC","Microsoft YaHei",system-ui,sans-serif`;
-      ctx.fillStyle = 'rgba(255,255,255,.96)';
-      ctx.textAlign = 'right';
+      ctx.fillStyle = 'rgba(255,255,255,.97)';
       ctx.textBaseline = 'middle';
-      ctx.fillText(ellipsize(ctx, o.text, maxW), R - 14, 0.5);
+
+      if (flipped) {
+        ctx.textAlign = 'left';
+        ctx.fillText(ellipsize(ctx, o.text, maxW), -(R - pad), 0);
+      } else {
+        ctx.textAlign = 'right';
+        ctx.fillText(ellipsize(ctx, o.text, maxW), R - pad, 0);
+      }
       ctx.restore();
     }
 
@@ -319,24 +333,24 @@ async function spin() {
   el.spinLabel.textContent = '转着…';
   el.result.innerHTML = '<span class="result__empty">……</span>';
 
-  // 按权重抽
+  // 按权重抽：pick 落在 [0, total) 上
   const total = items.reduce((s, o) => s + Math.max(0.0001, o.weight), 0);
-  let pick = Math.random() * total;
-  let idx = 0;
+  const pick = Math.random() * total;
+
   const segs = [];
   let acc = 0;
   for (let i = 0; i < items.length; i++) {
     const sweep = (Math.max(0.0001, items[i].weight) / total) * 360;
     segs.push({ start: acc, sweep });
     acc += sweep;
-    if (pick <= acc && idx === i) { idx = i; }
-    if (pick <= acc && idx !== i) { /* 已定 */ }
   }
-  // 精确定位哪个扇区落到了 pick
+
+  // pick 换算成角度后再定位扇区（单位必须一致：pick 是权重，sweep 是角度）
+  const pickAngle = (pick / total) * 360;
   let chosen = items.length - 1;
   let c = 0;
   for (let i = 0; i < segs.length; i++) {
-    if (pick < c + segs[i].sweep) { chosen = i; break; }
+    if (pickAngle < c + segs[i].sweep) { chosen = i; break; }
     c += segs[i].sweep;
   }
 

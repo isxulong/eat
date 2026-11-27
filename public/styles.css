@@ -30,6 +30,8 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {
@@ -302,7 +304,7 @@ body {
 .panel {
   position: sticky; top: 20px;
   display: flex; flex-direction: column;
-  max-height: calc(100dvh - 40px);
+  max-height: min(calc(100dvh - 40px), 780px);
   background: var(--paper-2);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--line-2);
@@ -369,9 +371,11 @@ body {
   background: var(--paper);
   box-shadow: inset 0 0 0 1px var(--line-2);
   color: var(--ink);
-  font: inherit; font-size: 13px; line-height: 1.6;
+  font: inherit; font-size: 13px; line-height: 1.65;
   resize: vertical;
-  min-height: 66px;
+  height: 132px;
+  min-height: 72px;
+  max-height: 260px;
   transition: box-shadow .15s var(--ease);
 }
 .composer textarea:focus { outline: none; box-shadow: inset 0 0 0 1px var(--ink-3); }
@@ -411,8 +415,8 @@ body {
   list-style: none;
   margin: 0; padding: 6px 8px;
   overflow-y: auto;
-  flex: 1;
-  min-height: 80px;
+  flex: 0 1 auto;
+  min-height: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }
@@ -592,6 +596,7 @@ body {
   }
   .panel {
     position: static;
+    height: auto;
     max-height: none;
   }
   .list { max-height: 46vh; }
