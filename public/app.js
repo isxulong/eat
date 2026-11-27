@@ -28,12 +28,18 @@ const PALETTE = [
  * 项数多时改成连续色相环 —— 固定色循环会在细扇区上产生
  * 高频摩尔纹，连续色相则收敛成平滑的渐变轮。
  */
+/**
+ * 扇区配色。
+ * 项数少时用固定的 8 色菜单色（纸质感、色块清晰）；
+ * 项数多时改成连续色相环 —— 固定色循环会在细扇区上产生
+ * 高频摩尔纹，连续色相则收敛成平滑的渐变轮。
+ * 色相环压低饱和、抬高明度，落在纸张色域里，不跳出屏幕彩虹。
+ */
 function sliceColor(i, n) {
   if (n <= 20) return PALETTE[i % PALETTE.length];
-  // 沿色相环均匀铺开，明度轻微交替以区分相邻扇区
   const hue = (i / n) * 360;
-  const sat = 46 + (i % 2) * 8;
-  const light = i % 2 ? 44 : 52;
+  const sat = 34 + (i % 2) * 5;
+  const light = i % 2 ? 40 : 47;
   return `hsl(${hue.toFixed(2)} ${sat}% ${light}%)`;
 }
 
