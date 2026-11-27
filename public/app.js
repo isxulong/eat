@@ -8,10 +8,13 @@ const API = {
   health:  '/api/health',
   login:   '/api/login',
   logout:  '/api/logout',
+  password:'/api/password',
   options: '/api/options',
   batch:   '/api/options/batch',
   import:  '/api/wheel/import',
   export:  '/api/export',
+  tags:    '/api/tags',
+  optionTags: '/api/option-tags',
 };
 
 const CACHE_KEY = 'wheel.cache.v1';
@@ -22,12 +25,6 @@ const PALETTE = [
   '#8f3017', '#4a5f2a', '#6d3f6b', '#1f5f66',
 ];
 
-/**
- * 扇区配色。
- * 项数少时用固定的 8 色菜单色（有纸质感、色块清晰）；
- * 项数多时改成连续色相环 —— 固定色循环会在细扇区上产生
- * 高频摩尔纹，连续色相则收敛成平滑的渐变轮。
- */
 /**
  * 扇区配色。
  * 项数少时用固定的 8 色菜单色（纸质感、色块清晰）；
@@ -43,13 +40,45 @@ function sliceColor(i, n) {
   return `hsl(${hue.toFixed(2)} ${sat}% ${light}%)`;
 }
 
+/**
+ * 密集扇区统一画成一个圆 + 锥形渐变。
+ *
+ * 关键取舍：项数超过 120 时，每个扇区在屏幕上不足 2–3 像素，
+ * 逐个上色只会得到一片噪点纹理，反而看不清。这种情况下画平滑色轮，
+ * 落点仍按真实扇区精确计算——视觉上不假装能分辨每个扇区，
+ * 指针停在哪个颜色区间仍然与结果严格对应。
+ */
+function denseColor(items) {
+  const n = items.length;
+  const grad = ctx.createConicGradient(-Math.PI / 2, 0, 0);
+
+  if (n > 120) {
+    // 平滑色轮：只用少量色标，得到干净渐变，无摩尔纹
+    const STOPS = 24;
+    for (let s = 0; s <= STOPS; s++) {
+      const t = s / STOPS;
+      const hue = t * 360;
+      grad.addColorStop(t, `hsl(${hue.toFixed(1)} 34% ${s % 2 ? 43 : 47}%)`);
+    }
+    return grad;
+  }
+
+  // 120 项以内：每个扇区一个色标，边界清晰可分辨
+  for (let i = 0; i <= n; i++) {
+    grad.addColorStop(i / n, sliceColor(i % n, n));
+  }
+  return grad;
+}
+
 /* ─────────── 状态 ─────────── */
 
 const state = {
   options: [],
+  tags: [],
   revision: 0,
   editing: false,
   query: '',
+  activeTags: new Set(),   // 转盘筛选用：只抽这些分类
   selected: new Set(),
   spinning: false,
   rotation: 0,
@@ -83,15 +112,35 @@ const el = {
   syncState:  $('#syncState'),
   batchbar:   $('#batchbar'),
   batchCount: $('#batchCount'),
+  batchTag:   $('#batchTag'),
   batchEnable:$('#batchEnable'),
   batchDisable:$('#batchDisable'),
   batchDelete:$('#batchDelete'),
+  filters:    $('#filters'),
+  filterChips:$('#filterChips'),
+  filterClear:$('#filterClear'),
+  tagPop:     $('#tagPop'),
+  tagPopTitle:$('#tagPopTitle'),
+  tagPopList: $('#tagPopList'),
+  tagPopClose:$('#tagPopClose'),
+  tagNewInput:$('#tagNewInput'),
+  tagNewBtn:  $('#tagNewBtn'),
   loginDlg:   $('#loginDlg'),
   loginForm:  $('#loginForm'),
   loginErr:   $('#loginErr'),
   tokenInput: $('#tokenInput'),
   loginCancel:$('#loginCancel'),
   loginSubmit:$('#loginSubmit'),
+  passBtn:    $('#passBtn'),
+  passDlg:    $('#passDlg'),
+  passForm:   $('#passForm'),
+  passCurrent:$('#passCurrent'),
+  passNext:   $('#passNext'),
+  passRepeat: $('#passRepeat'),
+  passErr:    $('#passErr'),
+  passCancel: $('#passCancel'),
+  passSubmit: $('#passSubmit'),
+  currentField: $('#currentField'),
   toast:      $('#toast'),
 };
 
@@ -137,23 +186,41 @@ function parseLines(raw) {
 /* ─────────── 接口 ─────────── */
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    credentials: 'same-origin',
-    headers: opts.body ? { 'content-type': 'application/json' } : undefined,
-    ...opts,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  let data = null;
-  try { data = await res.json(); } catch { /* 非 JSON */ }
+  const method = (opts.method || 'GET').toUpperCase();
+  const isRead = method === 'GET';
+  // 读操作可以重试（幂等）；写操作只在网络层失败（根本没拿到响应）时重试，
+  // 因为服务端可能已经执行了 —— 但选项 id 是客户端生成的，重放不会产生重复行。
+  const maxTries = isRead ? 2 : 2;
 
-  if (!res.ok) {
-    const e = new Error(data?.message || `请求失败（${res.status}）`);
-    e.status = res.status;
-    e.code = data?.error;
-    e.payload = data;
-    throw e;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxTries; attempt++) {
+    try {
+      const res = await fetch(path, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: opts.body ? { 'content-type': 'application/json' } : undefined,
+        ...opts,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      let data = null;
+      try { data = await res.json(); } catch { /* 非 JSON */ }
+
+      if (!res.ok) {
+        const e = new Error(data?.message || `请求失败（${res.status}）`);
+        e.status = res.status;
+        e.code = data?.error;
+        e.payload = data;
+        throw e;
+      }
+      return data;
+    } catch (e) {
+      lastErr = e;
+      // 业务错误（4xx/5xx 已拿到响应）不重试，只有网络层失败才重试
+      if (e.status) throw e;
+      if (attempt < maxTries) await sleep(400 * attempt);
+    }
   }
-  return data;
+  throw lastErr;
 }
 
 /* ─────────── 本地缓存（首屏秒开 + 断网兜底） ─────────── */
@@ -164,7 +231,8 @@ function loadCache() {
     if (!raw) return false;
     const d = JSON.parse(raw);
     if (!Array.isArray(d.options)) return false;
-    state.options = d.options;
+    state.options = d.options.map(normalize);
+    if (Array.isArray(d.tags)) state.tags = d.tags.map(normalizeTag);
     state.revision = d.revision ?? 0;
     state.savedAt = d.at ?? 0;
     return true;
@@ -175,6 +243,7 @@ function saveCache() {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify({
       options: state.options,
+      tags: state.tags,
       revision: state.revision,
       at: Date.now(),
     }));
@@ -187,11 +256,17 @@ async function pull({ silent = false } = {}) {
   if (!silent) setSync('idle', '载入中');
   try {
     const d = await api(API.wheel);
+    const changed =
+      !Array.isArray(state.options) ||
+      d.revision !== state.revision ||
+      d.options.length !== state.options.length;
     state.options = d.options.map(normalize);
+    if (Array.isArray(d.tags)) state.tags = d.tags.map(normalizeTag);
     state.revision = d.revision;
     saveCache();
     renderAll();
-    setSync('ok', '已同步');
+    if (!silent) setSync('ok', '已同步');
+    return changed;
   } catch (e) {
     if (state.options.length) {
       setSync('local', '离线副本');
@@ -199,8 +274,29 @@ async function pull({ silent = false } = {}) {
       setSync('error', '连接失败');
       toast(e.message, 'error');
     }
+    return false;
   }
 }
+
+/**
+ * 后台静默同步：草稿和输入框不会被覆盖，只在数据真的变了时重绘。
+ * 编辑中不打断用户（避免正在改的那行被替换掉）。
+ */
+let pollTimer = 0;
+function startPolling() {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    if (document.hidden) return;
+    if (state.editing) return;          // 编辑中不打断
+    if (state.spinning) return;
+    await pull({ silent: true });
+  }, 20000);
+}
+
+// 切回标签页时立刻同步一次 —— 这就是「不用手动刷新」
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !state.editing) pull({ silent: true });
+});
 
 function normalize(o) {
   return {
@@ -209,22 +305,64 @@ function normalize(o) {
     weight: Number(o.weight) || 1,
     disabled: Number(o.disabled) ? 1 : 0,
     sort: Number(o.sort) || 0,
+    tags: Array.isArray(o.tags) ? o.tags : [],
+  };
+}
+
+function normalizeTag(t) {
+  return {
+    id: t.id,
+    name: t.name,
+    color: t.color || '',
+    sort: Number(t.sort) || 0,
   };
 }
 
 /* ─────────── 写操作（乐观 + 冲突处理） ─────────── */
 
-async function mutate(run, { label = '保存中' } = {}) {
+/**
+ * 写操作。
+ *
+ * 两种模式：
+ *  · optimistic：先改本地并立刻重绘，再发请求。链路慢（1–3s/往返）时用户看不到等待。
+ *    失败则回滚到操作前的快照。
+ *  · 默认：等服务端确认再重绘（用于批量替换这类不能猜的操作）。
+ */
+async function mutate(run, { label = '保存中', optimistic } = {}) {
+  const before = optimistic
+    ? { options: state.options.map((o) => ({ ...o })), revision: state.revision }
+    : null;
+
+  if (optimistic) {
+    optimistic.apply();
+    saveCache();
+    renderAll();
+  }
+
   setSync('saving', label);
+  const t0 = performance.now();
   try {
     const res = await run();
-    if (res?.revision) state.revision = res.revision;
-    await pull({ silent: true });
-    setSync('ok', '已同步');
+    if (Array.isArray(res?.options)) {
+      // 写接口直接回吐完整快照 —— 一次往返，且绕开缓存
+      state.options = res.options.map(normalize);
+      if (Array.isArray(res.tags)) state.tags = res.tags.map(normalizeTag);
+      state.revision = res.revision ?? state.revision;
+      saveCache();
+      renderAll();
+    } else if (!optimistic) {
+      await pull({ silent: true });
+    }
+    setSync('ok', `已保存 · ${Math.round(performance.now() - t0)}ms`);
     return res;
   } catch (e) {
+    if (before) {
+      state.options = before.options;
+      state.revision = before.revision;
+      saveCache();
+      renderAll();
+    }
     if (e.code === 'revision_conflict') {
-      // 别处改过了：直接吃服务端快照，本地未提交的输入保留在输入框里
       if (Array.isArray(e.payload?.options)) {
         state.options = e.payload.options.map(normalize);
         state.revision = e.payload.revision;
@@ -235,7 +373,7 @@ async function mutate(run, { label = '保存中' } = {}) {
       toast('别处改过，已拉取最新内容，请再试一次', 'error');
     } else {
       setSync('error', '保存失败');
-      toast(e.message || '保存失败', 'error');
+      toast(e.message || '保存失败（已还原）', 'error');
     }
     throw e;
   }
@@ -246,8 +384,14 @@ async function mutate(run, { label = '保存中' } = {}) {
 const ctx = el.canvas.getContext('2d');
 let wheelSize = 0;
 
+/**
+ * 转盘实际参与抽取的选项：启用的 + 命中当前分类筛选的。
+ * 没选任何分类 = 不过滤；选了多个分类 = 并集（属于任一即可）。
+ */
 function activeOptions() {
-  return state.options.filter((o) => !o.disabled && o.text);
+  const pool = state.options.filter((o) => !o.disabled && o.text);
+  if (!state.activeTags.size) return pool;
+  return pool.filter((o) => (o.tags || []).some((t) => state.activeTags.has(t)));
 }
 
 function fitCanvas() {
@@ -291,10 +435,21 @@ function drawWheel() {
   const drawStroke = avgSweep > 0.012;      // ≈ 少于 520 项才画细线
   const drawText = avgSweep > 0.24;          // ≈ 少于 26 项才有文字
 
+  /* 密集扇区（>60 项）：逐个填充三角形会在弧边留下抗锯齿接缝，
+     整圈看起来像毛边。这种情况下一次画满整圆，再用锥形渐变上色。 */
+  if (items.length > 60) {
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 1, 0, TAU);
+    ctx.closePath();
+    ctx.fillStyle = denseColor(items);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
   items.forEach((o, i) => {
     const sweep = (Math.max(0.0001, o.weight) / total) * TAU;
     const color = sliceColor(i, items.length);
-
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.arc(0, 0, R - 1, angle, angle + sweep);
@@ -311,27 +466,44 @@ function drawWheel() {
     // 文字：够宽才画；下半圆整体翻转 180°，避免倒字
     if (drawText && sweep > 0.24) {
       const mid = angle + sweep / 2;
-      const norm = ((mid % TAU) + TAU) % TAU;
-      const flipped = norm > Math.PI / 2 && norm < (Math.PI * 3) / 2;
 
-      const pad = 15;
-      const maxW = R - pad - R * 0.31;          // 中心留出毂的半径
-      const fs = Math.round(Math.max(10.5, Math.min(13, R * 0.043)));
+      const pad = 16;
+      const hubR = R * 0.325;
+      const outer = R - pad;
+      const maxW = outer - hubR;
+      const fs = Math.round(
+        Math.max(10.5, Math.min(16, R * 0.042 + (sweep > 0.7 ? R * 0.016 : 0)))
+      );
+
+      // 宽扇区用切向排字（垂直于半径）——正下方/正上方的扇区因此是横排，
+      // 不会出现 90° 竖排的怪相；窄扇区用径向排字，空间利用率更高。
+      const wide = sweep > 0.62;
+      const rLabel = wide ? (outer + hubR) / 2 : outer;
 
       ctx.save();
       ctx.rotate(mid);
-      if (flipped) ctx.rotate(Math.PI);
+      ctx.translate(rLabel, 0);
 
       ctx.font = `600 ${fs}px "PingFang SC","Microsoft YaHei",system-ui,sans-serif`;
       ctx.fillStyle = 'rgba(255,255,255,.97)';
       ctx.textBaseline = 'middle';
+      ctx.textAlign = wide ? 'center' : 'right';
 
-      if (flipped) {
-        ctx.textAlign = 'left';
-        ctx.fillText(ellipsize(ctx, o.text, maxW), -(R - pad), 0);
+      const label = ellipsize(ctx, o.text, maxW);
+
+      if (wide) {
+        // 切向：再加 90°；若因此倒置则补 180°
+        let t = Math.PI / 2;
+        if (Math.cos(mid + t) < 0) t += Math.PI;
+        ctx.rotate(t);
+        ctx.fillText(label, 0, 0);
       } else {
-        ctx.textAlign = 'right';
-        ctx.fillText(ellipsize(ctx, o.text, maxW), R - pad, 0);
+        // 径向：文字朝圆心方向书写；指向左半侧时补 180° 防倒置
+        if (Math.cos(mid) < -0.02) {
+          ctx.rotate(Math.PI);
+          ctx.textAlign = 'left';
+        }
+        ctx.fillText(label, 0, 0);
       }
       ctx.restore();
     }
@@ -441,7 +613,9 @@ function highlight(id) {
 /* ─────────── 列表渲染（窗口化） ─────────── */
 
 const ROW_H = 38;
+const OVERSCAN = 6;      // 视窗上下各多渲染几行，滚动手感更稳
 let renderRaf = 0;
+let lastRange = { start: -1, end: -1, len: -1, query: '', editing: null, rev: -1 };
 
 function visibleOptions() {
   const q = state.query.trim().toLowerCase();
@@ -449,13 +623,31 @@ function visibleOptions() {
   return state.options.filter((o) => o.text.toLowerCase().includes(q));
 }
 
+/** 计算当前应该渲染的行区间 */
+function windowRange(items, scrollTop, viewH) {
+  const start = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const end = Math.min(items.length, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN);
+  return { start, end };
+}
+
+/**
+ * 渲染列表。
+ *
+ * 关键：滚动时不要重建整段 DOM。
+ * 原实现每次 scroll 都 replaceChildren 一遍，配合行的入场动画会让文字
+ * 在拖动过程中反复回到 opacity:0（用户看到的就是「滑动时文字闪没」）。
+ * 现在只在「可见区间真的变了」或「数据/查询/编辑态变了」时才重建；
+ * 单纯滚动且区间未变时，直接返回。
+ */
 function renderList() {
   const items = visibleOptions();
   const scrollTop = el.list.scrollTop;
   const viewH = el.list.clientHeight || 420;
+  const { start, end } = windowRange(items, scrollTop, viewH);
 
-  const start = Math.max(0, Math.floor(scrollTop / ROW_H) - 3);
-  const end = Math.min(items.length, Math.ceil((scrollTop + viewH) / ROW_H) + 4);
+  const sig = `${start}:${end}:${items.length}:${state.query}:${state.editing ? 1 : 0}:${state.revision}:${state.tags.length}`;
+  if (sig === lastRange.sig) return;      // 没有任何变化，别碰 DOM
+  lastRange.sig = sig;
 
   const frag = document.createDocumentFragment();
   for (let i = start; i < end; i++) {
@@ -466,7 +658,8 @@ function renderList() {
 
   el.list.style.position = 'relative';
   el.list.replaceChildren(frag);
-  // 用一条不可见的占位撑出总高度，行本身绝对定位——避免 padding 与 flex 高度互相干扰
+
+  // 用一条不可见的占位撑出总高度，行本身绝对定位
   const spacer = document.createElement('li');
   spacer.className = 'list__spacer';
   spacer.setAttribute('aria-hidden', 'true');
@@ -481,7 +674,7 @@ function renderList() {
 
 function buildRow(o, i) {
   const li = document.createElement('li');
-  li.className = 'row' + (o.disabled ? ' is-off' : '');
+  li.className = 'row' + (o.disabled ? ' is-off' : '') + (o._pending ? ' is-pending' : '');
   li.dataset.id = o.id;
   li.style.top = `${i * ROW_H}px`;
 
@@ -534,13 +727,27 @@ function buildRow(o, i) {
     del.innerHTML = '<svg class="i" aria-hidden="true"><use href="#i-trash"></use></svg>';
     del.addEventListener('click', () => removeOption(o.id));
     acts.append(del);
+  }
+
+  // 标签点：让用户一眼看出这一项属于哪些分类
+  const dots = document.createElement('div');
+  dots.className = 'row__tagdots';
+  for (const tid of o.tags || []) {
+    const i = document.createElement('i');
+    i.style.background = tagColorOf(tid) || 'var(--ink-3)';
+    i.title = state.tags.find((t) => t.id === tid)?.name || '';
+    dots.append(i);
+  }
+
+  li.append(check, num, text, dots, acts);
+
+  if (state.editing) {
     li.addEventListener('click', (e) => {
       if (e.target.closest('.row__del, .row__check, .row__text')) return;
       toggleDisabled(o);
     });
   }
 
-  li.append(check, num, text, acts);
   return li;
 }
 
@@ -551,31 +758,173 @@ function scheduleRender() {
     renderList();
   });
 }
-
 function renderAll() {
   el.hubCount.textContent = String(activeOptions().length);
   drawWheel();
   el.spinBtn.disabled = state.spinning || activeOptions().length === 0;
+  renderFilters();
+  invalidateList();     // 数据变了：强制重算一次列表
   renderList();
   updateBatchBar();
+}
+
+/** 让下一次 renderList 一定重建 DOM */
+function invalidateList() {
+  lastRange.sig = '';
+}
+
+/* ─────────── 分类筛选 ─────────── */
+
+function renderFilters() {
+  const hasTags = state.tags.length > 0;
+  el.filters.hidden = !hasTags;
+  if (!hasTags) return;
+
+  // 每个分类有多少项参与（受启用状态影响）
+  const counts = {};
+  for (const o of state.options) {
+    if (o.disabled || !o.text) continue;
+    for (const t of o.tags || []) counts[t] = (counts[t] || 0) + 1;
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const t of state.tags) {
+    const n = counts[t.id] || 0;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip' + (state.activeTags.has(t.id) ? ' is-on' : '');
+    b.dataset.tag = t.id;
+    if (t.color) b.style.setProperty('--chip', t.color);
+    b.innerHTML =
+      `<span class="chip__dot"></span>` +
+      `<span>${escapeHtml(t.name)}</span>` +
+      `<span class="chip__n">${n}</span>`;
+    b.addEventListener('click', () => toggleTagFilter(t.id));
+    frag.append(b);
+  }
+  el.filterChips.replaceChildren(frag);
+  el.filterClear.hidden = state.activeTags.size === 0;
+}
+
+function toggleTagFilter(id) {
+  if (state.activeTags.has(id)) state.activeTags.delete(id);
+  else state.activeTags.add(id);
+  // 筛选后当前结果可能为空，提示一下
+  const n = activeOptions().length;
+  if (n === 0) toast('这个筛选下没有可选项', 'error');
+  renderAll();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+}
+
+function tagColorOf(id) {
+  const t = state.tags.find((x) => x.id === id);
+  return t?.color || '';
+}
+
+/* ─────────── 给选项打标签 ─────────── */
+
+async function setOptionTags(optionIds, tagIds, mode) {
+  await mutate(
+    () => api(API.optionTags, { method: 'POST', body: { optionIds, tagIds, mode } }),
+    {
+      label: '更新分类',
+      optimistic: {
+        apply: () => {
+          for (const o of state.options) {
+            if (!optionIds.includes(o.id)) continue;
+            const set = new Set(o.tags || []);
+            for (const t of tagIds) {
+              if (mode === 'remove') set.delete(t);
+              else set.add(t);
+            }
+            o.tags = [...set];
+          }
+        },
+      },
+    }
+  ).catch(() => {});
+}
+
+async function createTag(name, thenApplyTo) {
+  const trimmed = name.trim().slice(0, 20);
+  if (!trimmed) return null;
+  try {
+    const res = await mutate(
+      () => api(API.tags, { method: 'POST', body: { name: trimmed } }),
+      { label: '建分类' }
+    );
+    const created = state.tags.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+    if (created && thenApplyTo?.length) {
+      await setOptionTags(thenApplyTo, [created.id], 'add');
+    }
+    return created;
+  } catch (e) {
+    if (e.code === 'duplicate') toast('这个分类已经有了', 'error');
+    return null;
+  }
+}
+
+function openTagPop() {
+  const ids = [...state.selected];
+  if (!ids.length) return;
+  el.tagPop.hidden = false;
+  el.tagPopTitle.textContent = `给 ${ids.length} 项设置分类`;
+  renderTagPopList(ids);
+  el.tagNewInput.value = '';
+  el.tagNewInput.focus();
+}
+
+function renderTagPopList(optionIds) {
+  const frag = document.createDocumentFragment();
+
+  if (!state.tags.length) {
+    el.tagPopList.replaceChildren(frag);
+    return;
+  }
+
+  // 选中项共同的标签 = 全部都有；部分有的显示为半选态
+  for (const t of state.tags) {
+    const owning = state.options.filter(
+      (o) => optionIds.includes(o.id) && (o.tags || []).includes(t.id)
+    ).length;
+    const all = owning === optionIds.length;
+    const some = owning > 0 && !all;
+
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip' + (all ? ' is-on' : '');
+    b.style.opacity = some ? '.72' : '1';
+    b.innerHTML =
+      (t.color ? `<span class="chip__dot" style="background:${t.color}"></span>` : '<span class="chip__dot"></span>') +
+      `<span>${escapeHtml(t.name)}</span>`;
+    b.title = all ? '点一下移除' : some ? `${owning}/${optionIds.length} 项已有` : '点一下加上';
+    b.addEventListener('click', async () => {
+      const mode = all ? 'remove' : 'add';
+      await setOptionTags(optionIds, [t.id], mode);
+      renderTagPopList(optionIds);
+    });
+    frag.append(b);
+  }
+  el.tagPopList.replaceChildren(frag);
 }
 
 /* ─────────── 编辑操作 ─────────── */
 
 async function renameOption(id, text) {
   const o = state.options.find((x) => x.id === id);
-  if (!o) return;
-  const prev = o.text;
-  o.text = text;
-  saveCache();
-  renderAll();
-  try {
-    await mutate(() => api(`${API.options}/${id}`, { method: 'PATCH', body: { text } }));
-  } catch {
-    o.text = prev;
-    saveCache();
-    renderAll();
-  }
+  if (!o || o.text === text) return;
+  await mutate(
+    () => api(`${API.options}/${id}`, { method: 'PATCH', body: { text } }),
+    {
+      label: '改名中',
+      optimistic: { apply: () => { o.text = text; } },
+    }
+  ).catch(() => {});
 }
 
 async function removeOption(id) {
@@ -583,30 +932,27 @@ async function removeOption(id) {
   if (!o) return;
   if (!confirm(`删除「${o.text}」？`)) return;
   const idx = state.options.findIndex((x) => x.id === id);
-  state.options.splice(idx, 1);
   state.selected.delete(id);
-  saveCache();
-  renderAll();
-  try {
-    await mutate(() => api(`${API.options}/${id}?hard=1`, { method: 'DELETE' }));
-  } catch {
-    await pull({ silent: true });
-  }
+  await mutate(
+    () => api(`${API.options}/${id}?hard=1`, { method: 'DELETE' }),
+    {
+      label: '删除中',
+      optimistic: { apply: () => { state.options.splice(idx, 1); } },
+    }
+  ).catch(() => {});
 }
 
 async function toggleDisabled(o) {
   const next = o.disabled ? 0 : 1;
-  o.disabled = next;
-  saveCache();
-  renderAll();
-  try {
-    await mutate(() => api(`${API.options}/${o.id}`, { method: 'PATCH', body: { disabled: next } }));
-    toast(next ? `已停用「${o.text}」` : `已启用「${o.text}」`);
-  } catch {
-    o.disabled = next ? 0 : 1;
-    saveCache();
-    renderAll();
-  }
+  await mutate(
+    () => api(`${API.options}/${o.id}`, { method: 'PATCH', body: { disabled: next } }),
+    {
+      label: next ? '停用中' : '启用中',
+      optimistic: { apply: () => { o.disabled = next; } },
+    }
+  )
+    .then(() => toast(next ? `已停用「${o.text}」` : `已启用「${o.text}」`))
+    .catch(() => {});
 }
 
 async function addTexts(texts, mode = 'append', title) {
@@ -620,15 +966,46 @@ async function addTexts(texts, mode = 'append', title) {
       { label: '替换中' }
     );
     toast(`已替换为 ${list.length} 项`);
-  } else {
-    const res = await mutate(
-      () => api(API.options, { method: 'POST', body: { texts: list } }),
-      { label: `写入 ${list.length} 条` }
-    );
-    const added = res?.added?.length ?? list.length;
-    const skipped = res?.skipped ?? 0;
-    toast(skipped ? `新增 ${added} 项，跳过重复 ${skipped} 项` : `新增 ${added} 项`);
+    return;
   }
+
+  // 追加：先在本地算出会新增什么，立刻显示，再等服务端确认
+  const existing = new Set(state.options.map((o) => o.text.toLowerCase()));
+  const fresh = [];
+  for (const t of list) {
+    const k = t.toLowerCase();
+    if (existing.has(k)) continue;
+    existing.add(k);
+    fresh.push(t);
+  }
+  if (!fresh.length) {
+    toast('这些都已经在列表里了');
+    return;
+  }
+
+  const baseSort = state.options.length
+    ? Math.max(...state.options.map((o) => o.sort)) + 1
+    : 0;
+  const pending = fresh.map((text, i) => ({
+    id: 'tmp-' + crypto.randomUUID(),
+    text,
+    weight: 1,
+    disabled: 0,
+    sort: baseSort + i,
+    _pending: true,
+  }));
+
+  const res = await mutate(
+    () => api(API.options, { method: 'POST', body: { texts: list } }),
+    {
+      label: `写入 ${fresh.length} 条`,
+      optimistic: { apply: () => { state.options = state.options.concat(pending); } },
+    }
+  );
+
+  const added = res?.added?.length ?? fresh.length;
+  const skipped = res?.skipped ?? 0;
+  toast(skipped ? `新增 ${added} 项，跳过重复 ${skipped} 项` : `新增 ${added} 项`);
 }
 
 /* ─────────── 批量条 ─────────── */
@@ -645,10 +1022,13 @@ async function batchOp(kind) {
 
   if (kind === 'delete') {
     if (!confirm(`删除选中的 ${ids.length} 项？`)) return;
-    el.batchbar.hidden = true;
+    const keep = state.options.filter((o) => !ids.includes(o.id));
     await mutate(
       () => api(API.batch, { method: 'POST', body: { remove: ids } }),
-      { label: '删除中' }
+      {
+        label: '删除中',
+        optimistic: { apply: () => { state.options = keep; } },
+      }
     ).catch(() => {});
     state.selected.clear();
     updateBatchBar();
@@ -656,13 +1036,19 @@ async function batchOp(kind) {
   }
 
   const disabled = kind === 'disable' ? 1 : 0;
-  el.batchbar.hidden = true;
   await mutate(
     () => api(API.batch, {
       method: 'POST',
       body: { update: ids.map((id) => ({ id, disabled })) },
     }),
-    { label: '批量更新' }
+    {
+      label: '批量更新',
+      optimistic: {
+        apply: () => {
+          for (const o of state.options) if (ids.includes(o.id)) o.disabled = disabled;
+        },
+      },
+    }
   ).catch(() => {});
   state.selected.clear();
   updateBatchBar();
@@ -692,8 +1078,10 @@ function setEditing(on) {
   el.composer.hidden = !on;
   el.editToggle.classList.toggle('is-on', on);
   el.editText.textContent = on ? '完成' : '编辑';
+  el.passBtn.hidden = !on;          // 改口令入口只在解锁后出现
   if (!on) {
     state.selected.clear();
+    pull({ silent: true });          // 退出编辑同步一次，别人的改动立刻可见
   }
   renderAll();
   if (on) {
@@ -706,14 +1094,71 @@ async function doLogin(token) {
   el.loginSubmit.disabled = true;
   el.loginErr.hidden = true;
   try {
-    await api(API.login, { method: 'POST', body: { token } });
+    const res = await api(API.login, { method: 'POST', body: { token } });
     el.loginDlg.close();
     setEditing(true);
+    // 还在用环境变量的引导口令，提醒一次
+    if (res?.bootstrap) {
+      setTimeout(() => toast('当前是初始口令，点右上角「口令」换成自己的'), 1200);
+    }
   } catch (e) {
     el.loginErr.hidden = false;
     el.loginErr.textContent = e.code === 'bad_token' ? '口令不对，再试一次' : (e.message || '登录失败');
     el.loginSubmit.disabled = false;
     el.tokenInput.select();
+  }
+}
+
+/* ─────────── 修改口令 ─────────── */
+
+async function openPassDialog() {
+  el.passErr.hidden = true;
+  el.passNext.value = '';
+  el.passRepeat.value = '';
+  el.passCurrent.value = '';
+  // 已经设置过自定义口令时要校验当前口令；引导期直接设
+  try {
+    const h = await api(API.health);
+    el.currentField.hidden = !h.bootstrap;
+  } catch {
+    el.currentField.hidden = false;
+  }
+  el.passDlg.showModal();
+  setTimeout(() => {
+    (el.currentField.hidden ? el.passNext : el.passCurrent).focus();
+  }, 30);
+}
+
+async function savePass() {
+  el.passErr.hidden = true;
+  const next = el.passNext.value;
+  const again = el.passRepeat.value;
+  const cur = el.passCurrent.value;
+
+  if (next.length < 6) {
+    el.passErr.hidden = false;
+    el.passErr.textContent = '新口令至少 6 位';
+    return;
+  }
+  if (next !== again) {
+    el.passErr.hidden = false;
+    el.passErr.textContent = '两次输入不一致';
+    return;
+  }
+
+  el.passSubmit.disabled = true;
+  try {
+    await api(API.password, { method: 'POST', body: { current: cur, next } });
+    el.passDlg.close();
+    toast('口令已更新，下次用新口令解锁');
+  } catch (e) {
+    el.passErr.hidden = false;
+    el.passErr.textContent =
+      e.code === 'bad_current' ? '当前口令不对' :
+      e.code === 'weak' ? '新口令太短，至少 6 位' :
+      (e.message || '保存失败');
+  } finally {
+    el.passSubmit.disabled = false;
   }
 }
 
@@ -729,6 +1174,7 @@ el.editToggle.addEventListener('click', () => {
 el.search.addEventListener('input', () => {
   state.query = el.search.value;
   el.list.scrollTop = 0;
+  invalidateList();
   renderList();
 });
 
@@ -779,6 +1225,28 @@ el.batchEnable.addEventListener('click', () => batchOp('enable'));
 el.batchDisable.addEventListener('click', () => batchOp('disable'));
 el.batchDelete.addEventListener('click', () => batchOp('delete'));
 
+/* 分类 */
+el.batchTag.addEventListener('click', openTagPop);
+el.tagPopClose.addEventListener('click', () => { el.tagPop.hidden = true; });
+el.filterClear.addEventListener('click', () => {
+  state.activeTags.clear();
+  renderAll();
+});
+
+async function newTagFromInput() {
+  const name = el.tagNewInput.value.trim();
+  if (!name) return;
+  el.tagNewInput.value = '';
+  const ids = [...state.selected];
+  await createTag(name, ids);
+  if (ids.length) renderTagPopList(ids);
+  else renderFilters();
+}
+el.tagNewBtn.addEventListener('click', newTagFromInput);
+el.tagNewInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); newTagFromInput(); }
+});
+
 el.exportBtn.addEventListener('click', () => {
   const items = activeOptions();
   if (!items.length) { toast('没有可导出的选项', 'error'); return; }
@@ -797,6 +1265,18 @@ el.loginForm.addEventListener('submit', (e) => {
   doLogin(el.tokenInput.value.trim());
 });
 el.loginCancel.addEventListener('click', () => el.loginDlg.close());
+
+el.passBtn.addEventListener('click', openPassDialog);
+el.passCancel.addEventListener('click', () => el.passDlg.close());
+el.passForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  savePass();
+});
+
+// 回车提交，Esc 关闭
+el.passRepeat.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); savePass(); }
+});
 
 // 无内容时按空格不滚动，直接转
 document.addEventListener('keydown', (e) => {
@@ -828,6 +1308,7 @@ function boot() {
   new ResizeObserver(() => fitCanvas()).observe(el.canvas);
 
   pull({ silent: cached });
+  startPolling();
 }
 
 boot();

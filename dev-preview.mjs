@@ -23,8 +23,27 @@ let options = SAMPLE.map((text, i) => ({
   weight: 1,
   disabled: 0,
   sort: i,
+  tags: [],
 }));
+let tags = [
+  { id: 'tag-hot', name: '辣的', color: '#b4401f', sort: 0 },
+  { id: 'tag-noodle', name: '面食', color: '#3d6a86', sort: 1 },
+  { id: 'tag-fast', name: '快餐', color: '#4a5f2a', sort: 2 },
+];
+// 给前几条打上标签，便于看筛选效果
+options[0].tags = ['tag-hot'];
+options[1].tags = ['tag-noodle'];
+options[2].tags = ['tag-fast'];
+options[3].tags = ['tag-fast'];
+options[4].tags = ['tag-fast'];
+options[9].tags = ['tag-noodle', 'tag-hot'];
+
 let revision = 1;
+let mockPass = 'demo';
+let bootstrap = true;
+
+/** 所有写接口都返回完整快照，与真实后端保持一致 */
+const snapshot = (extra = {}) => ({ revision, title: '今天吃什么', options, tags, ...extra });
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -57,10 +76,44 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
 
   if (p === '/api/wheel') {
-    return json(res, { revision, title: '今天吃什么', options });
+    res.setHeader('cache-control', 'no-store');
+    return json(res, snapshot());
   }
   if (p === '/api/health') {
-    return json(res, { ok: true, ms: 1, options: options.length, storage: 'mock', session: 'anon' });
+    return json(res, { ok: true, ms: 1, options: options.length, storage: 'mock', session: 'anon', bootstrapPass: bootstrap });
+  }
+  if (p === '/api/tags' && req.method === 'POST') {
+    const body = await readBody(req);
+    const name = String(body.name || '').trim().slice(0, 20);
+    if (!name) return json(res, { error: 'empty', message: '标签名不能为空' }, 400);
+    if (tags.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+      return json(res, { error: 'duplicate', message: '这个标签已经有了' }, 409);
+    }
+    const id = `tag-${Date.now()}`;
+    tags = tags.concat({ id, name, color: body.color || '', sort: tags.length });
+    revision++;
+    return json(res, snapshot({ created: id }));
+  }
+  if (p.startsWith('/api/tags/') && req.method === 'DELETE') {
+    const id = p.split('/').pop();
+    tags = tags.filter((t) => t.id !== id);
+    for (const o of options) o.tags = (o.tags || []).filter((t) => t !== id);
+    revision++;
+    return json(res, snapshot());
+  }
+  if (p === '/api/option-tags' && req.method === 'POST') {
+    const body = await readBody(req);
+    const ids = body.optionIds || [];
+    const tids = body.tagIds || [];
+    const mode = body.mode === 'remove' ? 'remove' : 'add';
+    for (const o of options) {
+      if (!ids.includes(o.id)) continue;
+      const set = new Set(o.tags || []);
+      for (const t of tids) mode === 'remove' ? set.delete(t) : set.add(t);
+      o.tags = [...set];
+    }
+    revision++;
+    return json(res, snapshot());
   }
   if (p === '/api/options' && req.method === 'POST') {
     const body = await readBody(req);
@@ -70,7 +123,7 @@ const server = http.createServer(async (req, res) => {
       list.map((text, i) => ({ id: `demo-n${base + i}-${Date.now()}`, text, weight: 1, disabled: 0, sort: base + i }))
     );
     revision++;
-    return json(res, { revision, added: list.length, skipped: 0 });
+    return json(res, snapshot({ added: list.length, skipped: 0 }));
   }
   if (p.startsWith('/api/options/') && req.method === 'PATCH') {
     const id = p.split('/').pop();
@@ -78,13 +131,13 @@ const server = http.createServer(async (req, res) => {
     const o = options.find((x) => x.id === id);
     if (o) Object.assign(o, body);
     revision++;
-    return json(res, { revision, ok: true });
+    return json(res, snapshot({ ok: true }));
   }
   if (p.startsWith('/api/options/') && req.method === 'DELETE') {
     const id = p.split('/').pop();
     options = options.filter((x) => x.id !== id);
     revision++;
-    return json(res, { revision, ok: true });
+    return json(res, snapshot({ ok: true }));
   }
   if (p === '/api/options/batch' && req.method === 'POST') {
     const body = await readBody(req);
@@ -94,18 +147,30 @@ const server = http.createServer(async (req, res) => {
       if (o) Object.assign(o, u);
     }
     revision++;
-    return json(res, { revision, applied: { added: 0, updated: (body.update || []).length, removed: (body.remove || []).length } });
+    return json(res, snapshot({ applied: { added: 0, updated: (body.update || []).length, removed: (body.remove || []).length } }));
   }
   if (p === '/api/wheel/import' && req.method === 'POST') {
     const body = await readBody(req);
     options = (body.texts || []).map((text, i) => ({ id: `demo-i${i}-${Date.now()}`, text, weight: 1, disabled: 0, sort: i }));
     revision++;
-    return json(res, { revision, imported: options.length, mode: body.mode || 'replace' });
+    return json(res, snapshot({ imported: options.length, mode: body.mode || 'replace' }));
   }
   if (p === '/api/login' && req.method === 'POST') {
     const body = await readBody(req);
-    if (body.token !== 'demo') return json(res, { error: 'bad_token', message: '口令不正确' }, 401);
-    return json(res, { ok: true, exp: Date.now() + 7200000 });
+    if (body.token !== mockPass) return json(res, { error: 'bad_token', message: '口令不正确' }, 401);
+    return json(res, { ok: true, exp: Date.now() + 7200000, bootstrap });
+  }
+  if (p === '/api/password' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (body.next && body.next.length >= 6) {
+      if (bootstrap || body.current === mockPass) {
+        mockPass = body.next;
+        bootstrap = false;
+        return json(res, { ok: true, updatedAt: Date.now() });
+      }
+      return json(res, { error: 'bad_current', message: '当前口令不正确' }, 401);
+    }
+    return json(res, { error: 'weak', message: '新口令至少 6 位' }, 400);
   }
 
   // 静态文件

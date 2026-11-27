@@ -21,6 +21,25 @@ CREATE TABLE IF NOT EXISTS options (
 
 CREATE INDEX IF NOT EXISTS idx_options_wheel ON options (wheel_id, sort, created_at);
 
+-- 分类标签（多对多：一个选项可属于多个分类）
+CREATE TABLE IF NOT EXISTS tags (
+  id         TEXT PRIMARY KEY,
+  wheel_id   TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  color      TEXT NOT NULL DEFAULT '',
+  sort       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS option_tags (
+  option_id TEXT NOT NULL,
+  tag_id    TEXT NOT NULL,
+  PRIMARY KEY (option_id, tag_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_option_tags_tag ON option_tags (tag_id);
+CREATE INDEX IF NOT EXISTS idx_option_tags_opt ON option_tags (option_id);
+
 CREATE TABLE IF NOT EXISTS meta (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL
