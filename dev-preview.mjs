@@ -10,7 +10,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const PORT = Number(process.env.PORT || 8787);
 
-const SAMPLE = [
+const BULK = process.env.BULK === '1';
+const SAMPLE = BULK ? Array.from({length:800},(_,i)=>'菜品'+(i+1)) : [
   '麻辣烫', '兰州拉面', '黄焖鸡米饭', '沙县小吃', '麦当劳',
   '肯德基', '吉野家', '真功夫', '猪脚饭', '螺蛳粉',
   '酸菜鱼', '火锅', '烧烤', '寿司', '披萨',

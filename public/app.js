@@ -22,6 +22,21 @@ const PALETTE = [
   '#8f3017', '#4a5f2a', '#6d3f6b', '#1f5f66',
 ];
 
+/**
+ * 扇区配色。
+ * 项数少时用固定的 8 色菜单色（有纸质感、色块清晰）；
+ * 项数多时改成连续色相环 —— 固定色循环会在细扇区上产生
+ * 高频摩尔纹，连续色相则收敛成平滑的渐变轮。
+ */
+function sliceColor(i, n) {
+  if (n <= 20) return PALETTE[i % PALETTE.length];
+  // 沿色相环均匀铺开，明度轻微交替以区分相邻扇区
+  const hue = (i / n) * 360;
+  const sat = 46 + (i % 2) * 8;
+  const light = i % 2 ? 44 : 52;
+  return `hsl(${hue.toFixed(2)} ${sat}% ${light}%)`;
+}
+
 /* ─────────── 状态 ─────────── */
 
 const state = {
@@ -265,9 +280,14 @@ function drawWheel() {
   const TAU = Math.PI * 2;
   let angle = -Math.PI / 2;
 
+  // 扇区越密越不该画分隔线与文字，否则整圈糊成干涉纹
+  const avgSweep = TAU / items.length;
+  const drawStroke = avgSweep > 0.012;      // ≈ 少于 520 项才画细线
+  const drawText = avgSweep > 0.24;          // ≈ 少于 26 项才有文字
+
   items.forEach((o, i) => {
     const sweep = (Math.max(0.0001, o.weight) / total) * TAU;
-    const color = PALETTE[i % PALETTE.length];
+    const color = sliceColor(i, items.length);
 
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -276,13 +296,14 @@ function drawWheel() {
     ctx.fillStyle = color;
     ctx.fill();
 
-    // 扇区之间的细白线，纸质菜单的刀口感
-    ctx.strokeStyle = 'rgba(251, 248, 241, .55)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    if (drawStroke) {
+      ctx.strokeStyle = 'rgba(251, 248, 241, .55)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
 
     // 文字：够宽才画；下半圆整体翻转 180°，避免倒字
-    if (sweep > 0.24) {
+    if (drawText && sweep > 0.24) {
       const mid = angle + sweep / 2;
       const norm = ((mid % TAU) + TAU) % TAU;
       const flipped = norm > Math.PI / 2 && norm < (Math.PI * 3) / 2;
@@ -425,17 +446,26 @@ function visibleOptions() {
 function renderList() {
   const items = visibleOptions();
   const scrollTop = el.list.scrollTop;
-  const viewH = el.list.clientHeight || 320;
+  const viewH = el.list.clientHeight || 420;
 
-  const start = Math.max(0, Math.floor(scrollTop / ROW_H) - 4);
-  const end = Math.min(items.length, Math.ceil((scrollTop + viewH) / ROW_H) + 6);
+  const start = Math.max(0, Math.floor(scrollTop / ROW_H) - 3);
+  const end = Math.min(items.length, Math.ceil((scrollTop + viewH) / ROW_H) + 4);
 
   const frag = document.createDocumentFragment();
-  for (let i = start; i < end; i++) frag.append(buildRow(items[i], i));
+  for (let i = start; i < end; i++) {
+    const row = buildRow(items[i], i);
+    row.style.top = `${i * ROW_H}px`;
+    frag.append(row);
+  }
 
+  el.list.style.position = 'relative';
   el.list.replaceChildren(frag);
-  el.list.style.paddingTop = `${6 + start * ROW_H}px`;
-  el.list.style.paddingBottom = `${6 + Math.max(0, items.length - end) * ROW_H}px`;
+  // 用一条不可见的占位撑出总高度，行本身绝对定位——避免 padding 与 flex 高度互相干扰
+  const spacer = document.createElement('li');
+  spacer.className = 'list__spacer';
+  spacer.setAttribute('aria-hidden', 'true');
+  spacer.style.height = `${items.length * ROW_H}px`;
+  el.list.append(spacer);
 
   el.empty.hidden = items.length > 0;
   el.countLabel.textContent = state.query
@@ -447,7 +477,7 @@ function buildRow(o, i) {
   const li = document.createElement('li');
   li.className = 'row' + (o.disabled ? ' is-off' : '');
   li.dataset.id = o.id;
-  li.style.height = `${ROW_H}px`;
+  li.style.top = `${i * ROW_H}px`;
 
   const check = document.createElement('input');
   check.type = 'checkbox';
