@@ -128,9 +128,16 @@ npx wrangler d1 execute eat-db --remote --file=./schema.sql
 # 增量迁移
 npx wrangler d1 execute eat-db --remote --file=./migrations/001-tags.sql
 
+# 构建（内联 css/js → 单文件，首屏请求 3 → 1）
+node build.mjs
+
 # 发布
-npx wrangler pages deploy public --project-name=eat --branch=main
+npx wrangler pages deploy dist --project-name=eat --branch=main
 ```
+
+> **为什么发布 `dist` 而不是 `public`**：这条线路上是 HTTP/1.1，每次请求要完整往返 0.8–2.6 秒。把 `styles.css` 和 `app.js` 内联进 HTML 后，首屏只发 1 个请求，省掉 2 次往返。实测静态请求从 3 降到 1，渲染行为完全一致。
+>
+> 改完 `public/` 下的文件后**必须重新跑 `node build.mjs`**，否则部署的还是旧内容。
 
 Pages 项目需要配置的环境变量：
 

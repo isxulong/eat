@@ -1,0 +1,2725 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>吃什么 · 转盘</title>
+<meta name="description" content="一个转盘，决定今天吃什么。选项可随时增删改，改动保存在云端。">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23b4401f'/><path d='M16 16 L16 3 A13 13 0 0 1 27.3 22.5 Z' fill='%23f6f2e9'/></svg>">
+<style>
+/* ────────────────────────────────────────────────
+   吃什么 · 转盘
+   纸质菜单的暖白 + 辣椒红，字口工整，动作干脆
+   ──────────────────────────────────────────────── */
+
+:root {
+  --paper:      #f4efe4;
+  --paper-2:    #fbf8f1;
+  --ink:        #221c17;
+  --ink-2:      #55483d;
+  --ink-3:      #8a7968;
+  --line:       #ddd2c0;
+  --line-2:     #e9e0d0;
+  --chili:      #b4401f;
+  --chili-dk:   #8f3017;
+  --chili-soft: #e8c7ba;
+  --jade:       #2f6b52;
+  --amber:      #c58a1f;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+
+  --shadow-sm: 0 1px 2px rgba(34, 28, 23, .06), 0 1px 1px rgba(34, 28, 23, .04);
+  --shadow-md: 0 2px 4px rgba(34, 28, 23, .06), 0 8px 20px -6px rgba(34, 28, 23, .16);
+  --shadow-lg: 0 4px 8px rgba(34, 28, 23, .06), 0 20px 48px -12px rgba(34, 28, 23, .24);
+
+  --ease: cubic-bezier(.16, 1, .3, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Source Han Sans SC", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background-image:
+    radial-gradient(circle at 12% -8%, rgba(180, 64, 31, .06), transparent 42%),
+    radial-gradient(circle at 88% 4%, rgba(47, 107, 82, .05), transparent 38%);
+  background-attachment: fixed;
+}
+
+::selection { background: var(--chili); color: #fff; }
+
+:focus-visible {
+  outline: 2px solid var(--chili);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.i {
+  width: 16px; height: 16px; flex: none;
+  fill: none; stroke: currentColor;
+  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* ───── 顶栏 ───── */
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  padding: 18px clamp(16px, 4vw, 40px);
+  max-width: 1280px; margin: 0 auto;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+
+.brand__mark {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: conic-gradient(var(--chili) 0 25%, var(--paper-2) 25% 50%, var(--jade) 50% 75%, var(--amber) 75% 100%);
+  box-shadow: inset 0 0 0 1.5px rgba(34, 28, 23, .18);
+}
+
+.brand__name {
+  font-size: 16px; font-weight: 600; letter-spacing: .02em;
+}
+
+.topbar__meta { display: flex; align-items: center; gap: 10px; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 500;
+  background: var(--paper-2);
+  color: var(--ink-3);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  transition: color .2s var(--ease), background .2s var(--ease);
+}
+.pill::before {
+  content: ""; width: 5px; height: 5px; border-radius: 50%;
+  background: currentColor; opacity: .55;
+}
+.pill[data-state="ok"]      { color: var(--jade); background: #eaf1ec; }
+.pill[data-state="ok"]::before { opacity: 1; }
+.pill[data-state="saving"]  { color: var(--amber); background: #faf2e0; }
+.pill[data-state="saving"]::before { animation: pulse 1s var(--ease) infinite; }
+.pill[data-state="error"]   { color: var(--chili); background: #fbeae4; }
+.pill[data-state="error"]::before { opacity: 1; }
+.pill[data-state="local"]   { color: var(--ink-3); }
+
+@keyframes pulse { 50% { opacity: .2; } }
+
+/* ───── 按钮 ───── */
+
+.ghost, .primary, .spin, .icon-btn {
+  font: inherit;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ghost {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 12px;
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  color: var(--ink-2);
+  font-size: 13px; font-weight: 500;
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: background .15s var(--ease), color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.ghost:hover { background: #fff; color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink-3); }
+.ghost:active { transform: translateY(.5px); }
+.ghost.is-on {
+  background: var(--ink); color: var(--paper-2);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.ghost--sm { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.ghost--danger:hover { color: var(--chili); box-shadow: inset 0 0 0 1px var(--chili); }
+
+.primary {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 34px; padding: 0 18px;
+  border-radius: var(--r-sm);
+  background: var(--chili);
+  color: #fff;
+  font-size: 13.5px; font-weight: 600;
+  box-shadow: 0 1px 2px rgba(143, 48, 23, .3);
+  transition: background .15s var(--ease);
+}
+.primary:hover { background: var(--chili-dk); }
+.primary:disabled { opacity: .55; cursor: progress; }
+
+.icon-btn {
+  display: inline-grid; place-items: center;
+  width: 32px; height: 32px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.icon-btn:hover { background: var(--line-2); color: var(--ink); }
+.icon-btn--solid { background: var(--line-2); color: var(--ink-2); }
+.icon-btn--solid:hover { background: var(--ink); color: var(--paper-2); }
+
+/* ───── 舞台 ───── */
+
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 372px;
+  gap: clamp(24px, 4vw, 56px);
+  align-items: start;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 8px clamp(16px, 4vw, 40px) 72px;
+}
+
+/* ───── 转盘 ───── */
+
+.wheelzone {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 34px;
+  padding-top: clamp(8px, 3vh, 32px);
+}
+
+.wheelwrap {
+  position: relative;
+  width: min(100%, 460px);
+  aspect-ratio: 1;
+  display: grid; place-items: center;
+}
+
+.wheelwrap::after {
+  content: "";
+  position: absolute; inset: -14px;
+  border-radius: 50%;
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+
+#wheel {
+  width: 100%; height: 100%;
+  display: block;
+  border-radius: 50%;
+  transform: rotate(0deg);
+  will-change: transform;
+  filter: drop-shadow(0 2px 3px rgba(34, 28, 23, .10));
+}
+
+.pointer {
+  position: absolute;
+  top: -6px; left: 50%;
+  width: 0; height: 0;
+  transform: translateX(-50%);
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 20px solid var(--ink);
+  z-index: 3;
+  filter: drop-shadow(0 1px 1px rgba(34, 28, 23, .25));
+}
+
+.hub {
+  position: absolute;
+  width: 23%; height: 23%;
+  border-radius: 50%;
+  background: var(--paper-2);
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    0 1px 3px rgba(34, 28, 23, .12);
+  display: grid; place-content: center; gap: 0;
+  text-align: center;
+  z-index: 2;
+  pointer-events: none;
+}
+.hub__count {
+  font-size: clamp(20px, 5.5cqw, 30px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -.02em;
+}
+.hub__unit { font-size: 11px; color: var(--ink-3); letter-spacing: .08em; }
+
+.controls {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 18px;
+  width: 100%;
+}
+
+.spin {
+  display: inline-flex; align-items: center; gap: 9px;
+  height: 50px; padding: 0 34px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper-2);
+  font-size: 15.5px; font-weight: 600;
+  letter-spacing: .04em;
+  box-shadow: var(--shadow-md);
+  transition: background .18s var(--ease), transform .18s var(--ease), box-shadow .18s var(--ease);
+}
+.spin .i { width: 18px; height: 18px; stroke-width: 1.5; }
+.spin:hover:not(:disabled) { background: #33291f; transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+.spin:active:not(:disabled) { transform: translateY(0) scale(.985); }
+.spin:disabled { opacity: .38; cursor: not-allowed; box-shadow: none; }
+
+.result {
+  margin: 0;
+  min-height: 34px;
+  text-align: center;
+  font-size: 15px;
+}
+.result__empty { color: var(--ink-3); font-size: 13.5px; }
+
+.result__value {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  font-size: clamp(20px, 3.4vw, 27px);
+  font-weight: 600;
+  letter-spacing: -.01em;
+  color: var(--chili);
+  animation: reveal .5s var(--ease) both;
+}
+.result__value small {
+  font-size: 12px; font-weight: 500; color: var(--ink-3);
+  letter-spacing: .02em;
+}
+
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(7px) scale(.965); filter: blur(3px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+
+/* ───── 面板 ───── */
+
+.panel {
+  position: sticky; top: 20px;
+  display: flex; flex-direction: column;
+  /* 面板高度跟着视口走，最小给到 520px：
+     原来 min(calc(100dvh - 40px), 780px)，在矮屏（笔记本 768/800）下
+     只剩 700px 左右，再被录入区吃掉 300+px，列表就只剩三四行。
+     现在给列表一个「至少能看十来行」的保底。 */
+  height: clamp(520px, calc(100dvh - 40px), 780px);
+  background: var(--paper-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--line-2);
+  overflow: hidden;
+}
+
+.panel__head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 8px;
+  flex: none;
+}
+.panel__head h2 {
+  margin: 0;
+  font-size: 14px; font-weight: 600;
+  letter-spacing: .06em;
+  color: var(--ink-2);
+}
+.count {
+  font-size: 12px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+}
+
+.panel__tools {
+  display: flex; gap: 6px;
+  padding: 0 18px 12px;
+  flex: none;
+}
+
+.search {
+  flex: 1;
+  display: flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 10px;
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--ink-3);
+  transition: box-shadow .15s var(--ease);
+}
+.search:focus-within { box-shadow: inset 0 0 0 1px var(--ink-3); }
+.search .i { width: 14px; height: 14px; }
+.search input {
+  flex: 1; min-width: 0;
+  border: 0; background: none; outline: none;
+  font: inherit; font-size: 13px; color: var(--ink);
+  padding: 0;
+}
+.search input::placeholder { color: var(--ink-3); }
+.search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+/* ── 批量录入 ── */
+
+.composer {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 0 18px 14px;
+  margin-bottom: 2px;
+  flex: none;
+  border-bottom: 1px solid var(--line-2);
+}
+
+.composer textarea {
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--ink);
+  font: inherit; font-size: 13px; line-height: 1.65;
+  resize: vertical;
+  /* 原来固定 132px，编辑态下把列表挤得只剩几行。
+     改成按内容自适应，上限压到 96px，需要多看时用户自己拖高。 */
+  height: 76px;
+  min-height: 60px;
+  max-height: 96px;
+  transition: box-shadow .15s var(--ease);
+}
+.composer textarea:focus { outline: none; box-shadow: inset 0 0 0 1px var(--ink-3); }
+.composer textarea::placeholder { color: var(--ink-3); }
+
+.composer__foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+}
+.hint {
+  font-size: 11.5px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.hint strong { color: var(--ink-2); font-weight: 600; }
+
+.composer__acts { display: flex; gap: 6px; }
+
+.quickadd {
+  display: flex; gap: 6px;
+  align-items: center;
+}
+.quickadd input {
+  flex: 1; min-width: 0;
+  height: 32px; padding: 0 10px;
+  border: 0; border-radius: var(--r-sm);
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  font: inherit; font-size: 13px; color: var(--ink);
+  transition: box-shadow .15s var(--ease);
+}
+.quickadd input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--ink-3); }
+.quickadd input::placeholder { color: var(--ink-3); }
+
+/* ── 列表 ── */
+
+.list {
+  list-style: none;
+  margin: 0; padding: 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 160px;      /* 保底约 4 行，避免被录入区挤没 */
+  position: relative;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+  overscroll-behavior: contain;
+}
+.list::-webkit-scrollbar { width: 10px; }
+.list::-webkit-scrollbar-track { background: transparent; }
+.list::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid var(--paper-2);
+  border-radius: 999px;
+}
+.list::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
+
+.row {
+  position: absolute;
+  left: 8px; right: 8px;
+  display: flex; align-items: center; gap: 8px;
+  height: 38px;
+  padding: 3px 8px 3px 6px;
+  border-radius: var(--r-sm);
+  transition: background .12s var(--ease);
+}
+/* 注意：这里不能加入场动画。
+   列表是虚拟滚动的，滚动时会重建行元素；若每行带 fade-in，
+   重建就会重放动画，手指拖动时文字始终停在 opacity:0，表现为闪没。 */
+@keyframes rowin { from { opacity: 0; transform: translateY(-3px); } }
+
+.list__spacer {
+  position: absolute; top: 0; left: 0;
+  width: 1px;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* ── 首屏骨架 ──
+   链路慢时数据可能要好几秒才回来，这段时间不能给用户看空白。 */
+.skeleton {
+  display: flex; flex-direction: column;
+  gap: 10px;
+  padding: 10px 22px;
+}
+.skeleton__row {
+  height: 12px;
+  width: var(--w, 60%);
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--line-2) 0%, var(--paper) 40%, var(--line-2) 80%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 150% 0; }
+  to   { background-position: -50% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton__row { animation: none; }
+}
+
+.list { padding-block: 6px; }
+
+.row:hover { background: var(--paper); }
+.row.is-off .row__text { color: var(--ink-3); text-decoration: line-through; text-decoration-thickness: 1px; }
+.row.is-hit { background: #f6e7df; }
+/* 已乐观更新、等服务端确认的行 */
+.row.is-pending .row__text { opacity: .62; }
+.row.is-pending::after {
+  content: "";
+  position: absolute;
+  left: 6px; right: 8px; bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--chili-soft), transparent);
+  animation: sweep 1.1s var(--ease) infinite;
+}
+@keyframes sweep {
+  0%   { transform: scaleX(0); transform-origin: left; opacity: 1; }
+  100% { transform: scaleX(1); transform-origin: left; opacity: .2; }
+}
+
+.row__check {
+  flex: none;
+  width: 14px; height: 14px;
+  margin: 0;
+  accent-color: var(--chili);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .12s var(--ease);
+}
+.panel[data-edit="1"] .row__check { opacity: 1; }
+
+.row__num {
+  flex: none;
+  width: 20px;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  opacity: .8;
+}
+
+.row__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  color: var(--ink);
+  padding: 4px 2px;
+  border-radius: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+.panel[data-edit="1"] .row__text { cursor: text; }
+.row__text:focus {
+  outline: none;
+  white-space: normal;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--ink-3);
+  padding: 4px 6px;
+}
+
+.row__acts {
+  display: flex; gap: 1px;
+  flex: none;
+  opacity: 0;
+  transition: opacity .12s var(--ease);
+}
+.panel[data-edit="1"] .row:hover .row__acts,
+.panel[data-edit="1"] .row:focus-within .row__acts { opacity: 1; }
+
+.row__del {
+  display: grid; place-items: center;
+  width: 24px; height: 24px;
+  border: 0; border-radius: 4px;
+  background: none; color: var(--ink-3);
+  cursor: pointer;
+  transition: background .12s var(--ease), color .12s var(--ease);
+}
+.row__del:hover { background: #fbeae4; color: var(--chili); }
+.row__del .i { width: 13px; height: 13px; }
+
+.empty {
+  padding: 32px 22px 40px;
+  text-align: center;
+}
+.empty__title { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.empty__body { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+
+/* ── 批量操作条 ── */
+
+.batchbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+  padding: 10px 18px;
+  flex: none;
+  border-top: 1px solid var(--line-2);
+  background: #f7f2e7;
+  animation: rowin .2s var(--ease) both;
+}
+.batchbar__count {
+  font-size: 12.5px; color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.batchbar__acts { display: flex; gap: 5px; }
+
+/* ── 分类筛选 ── */
+
+.filters {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 18px 12px;
+  flex: none;
+}
+.filters__label {
+  font-size: 11.5px; color: var(--ink-3);
+  letter-spacing: .04em;
+}
+.filters__chips { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; min-width: 0; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 24px; padding: 0 9px;
+  border: 0; border-radius: 999px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink-2);
+  font: inherit; font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .14s var(--ease), color .14s var(--ease), box-shadow .14s var(--ease);
+}
+.chip:hover { box-shadow: inset 0 0 0 1px var(--ink-3); }
+.chip.is-on {
+  background: var(--ink); color: var(--paper-2);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.chip__n {
+  font-size: 10px; opacity: .62;
+  font-variant-numeric: tabular-nums;
+}
+.chip__dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; opacity: .55;
+}
+.chip.is-on .chip__dot { opacity: 1; }
+
+.filters__clear {
+  border: 0; background: none;
+  color: var(--ink-3);
+  font: inherit; font-size: 11.5px;
+  cursor: pointer;
+  padding: 2px 4px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.filters__clear:hover { color: var(--chili); }
+
+/* 选项行上的标签点 */
+.row__tagdots { display: flex; gap: 2px; flex: none; }
+.row__tagdots i {
+  width: 5px; height: 5px; border-radius: 50%;
+  display: block;
+}
+
+/* ── 打标签浮层 ── */
+
+.tagpop {
+  position: absolute;
+  left: 12px; right: 12px; bottom: 12px;
+  z-index: 20;
+  max-height: calc(100% - 24px);
+  display: flex; flex-direction: column;
+  background: var(--paper-2);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--line-2);
+  padding: 10px;
+  animation: popin .18s var(--ease) both;
+}
+/* 浮层只在打开时挂载一次，用独立的入场动画；
+   绝不能复用 rowin —— 那个动画在列表重建时重放会导致文字消失。 */
+@keyframes popin {
+  from { opacity: 0; transform: translateY(6px) scale(.985); }
+}
+}
+.tagpop__head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tagpop__head span { font-size: 12.5px; color: var(--ink-2); }
+.tagpop__list {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+  max-height: 46vh;
+}
+.tagpop__list:empty::after {
+  content: "还没有分类，先在下面建一个";
+  font-size: 11.5px; color: var(--ink-3);
+}
+.tagpop__new { display: flex; gap: 5px; }
+
+/* 分类芯片 + 管理按钮的组合 */
+.tagchip {
+  display: inline-flex; align-items: center;
+  gap: 1px;
+  border-radius: 999px;
+  transition: background .14s var(--ease);
+}
+.tagchip:hover { background: var(--paper); }
+.tagchip .chip { border-radius: 999px 0 0 999px; padding-right: 5px; }
+.tagchip__edit {
+  display: grid; place-items: center;
+  width: 20px; height: 24px;
+  border: 0; border-radius: 0 999px 999px 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .14s var(--ease), color .14s var(--ease);
+}
+.tagchip__edit .i { width: 10px; height: 10px; }
+.tagchip:hover .tagchip__edit { opacity: 1; }
+.tagchip__edit:hover { color: var(--chili); }
+/* 触屏没有 hover，直接常显 */
+@media (hover: none) {
+  .tagchip__edit { opacity: .7; width: 24px; }
+}
+.tagpop__new input {
+  flex: 1; min-width: 0;
+  height: 28px; padding: 0 9px;
+  border: 0; border-radius: var(--r-sm);
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  font: inherit; font-size: 12.5px; color: var(--ink);
+}
+.tagpop__new input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--ink-3); }
+
+.panel { position: sticky; }
+.panel__body { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+/* ───── 对话框 ───── */
+
+.dlg {
+  border: 0;
+  padding: 0;
+  border-radius: var(--r-lg);
+  background: var(--paper-2);
+  color: var(--ink);
+  box-shadow: var(--shadow-lg);
+  width: min(92vw, 372px);
+  max-width: none;
+}
+.dlg::backdrop {
+  background: rgba(34, 28, 23, .34);
+  backdrop-filter: blur(3px);
+}
+.dlg__form { padding: 24px 24px 20px; display: flex; flex-direction: column; gap: 12px; }
+.dlg__form h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.dlg__sub { margin: -4px 0 4px; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+
+.dlg__form input {
+  height: 38px; padding: 0 12px;
+  border: 0; border-radius: var(--r-sm);
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: inherit; font-size: 14px;
+  transition: box-shadow .15s var(--ease);
+}
+.dlg__form input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--ink-3); }
+
+.dlg__err {
+  margin: -4px 0 0;
+  font-size: 12.5px; color: var(--chili);
+}
+.dlg__acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.dlg__acts--split { justify-content: space-between; align-items: center; }
+.dlg--sm { width: min(92vw, 340px); }
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field__label { font-size: 12px; color: var(--ink-3); letter-spacing: .02em; }
+.field input {
+  height: 38px; padding: 0 12px;
+  border: 0; border-radius: var(--r-sm);
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: inherit; font-size: 14px; color: var(--ink);
+  transition: box-shadow .15s var(--ease);
+}
+.field input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--ink-3); }
+
+/* ───── Toast ───── */
+
+.toast {
+  position: fixed;
+  left: 50%; bottom: 28px;
+  transform: translate(-50%, 12px);
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper-2);
+  font-size: 13px;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .22s var(--ease), transform .22s var(--ease);
+  z-index: 50;
+  max-width: 88vw;
+  text-align: center;
+}
+.toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+.toast[data-kind="error"] { background: var(--chili-dk); }
+
+/* ───── 响应式 ───── */
+
+@media (max-width: 900px) {
+  .stage {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+    padding-bottom: 48px;
+  }
+  .panel {
+    position: static;
+    height: min(74dvh, 640px);
+  }
+  .list { max-height: none; }
+  .wheelwrap { width: min(100%, 340px); }
+  .pointer { border-top-width: 17px; border-left-width: 8px; border-right-width: 8px; }
+}
+
+@media (max-width: 480px) {
+  body { font-size: 14.5px; }
+  .topbar { padding: 14px 16px; }
+  .controls { gap: 14px; }
+  .spin { height: 46px; padding: 0 28px; font-size: 15px; }
+  .panel__head { padding: 14px 14px 8px; }
+  .panel__tools { padding: 0 14px 10px; }
+  .composer { padding: 0 14px 12px; }
+  .batchbar { padding: 10px 14px; }
+  .row { padding-left: 4px; }
+  .row__num { display: none; }
+
+  /* 筛选条：横向可滚，不换行挤成两排 */
+  .filters { padding: 0 14px 10px; gap: 6px; }
+  .filters__chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+  .filters__chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; }
+
+  /* 打标签浮层：贴近底部，按钮加大到可点 */
+  .tagpop { left: 8px; right: 8px; bottom: 8px; padding: 12px; }
+  .tagpop__list { max-height: 40vh; }
+  .tagchip__edit { width: 26px; }
+  .batchbar { flex-wrap: wrap; gap: 8px; }
+  .batchbar__acts { flex-wrap: wrap; }
+  .ghost--sm { height: 30px; padding: 0 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+</style>
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.2 4.5V2.9h3.6v1.6M4.8 4.5l.55 8.6h5.3l.55-8.6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.2"/><path d="M10.1 10.1 13.5 13.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.4 6.4 11.8 13 5.2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 3v9M4.4 8.6 8 12.2l3.6-3.6"/></symbol>
+  <symbol id="i-dice" viewBox="0 0 16 16"><rect x="2.6" y="2.6" width="10.8" height="10.8" rx="2.2"/><circle cx="6" cy="6" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="6" r=".9" fill="currentColor" stroke="none"/><circle cx="6" cy="10" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3.2" y="7" width="9.6" height="6.6" rx="1.6"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7"/></symbol>
+  <symbol id="i-key" viewBox="0 0 16 16"><circle cx="6" cy="10" r="3.2"/><path d="M8.4 7.6 13 3M11.2 4.8l1.4 1.4M12.6 3.4l1.4 1.4"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16"><path d="M9.8 3.2 12.8 6.2M3 13l.7-2.9 7.1-7.1a1.4 1.4 0 0 1 2 0l.9.9a1.4 1.4 0 0 1 0 2l-7.1 7.1L3 13z"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand__mark" aria-hidden="true"></span>
+    <span class="brand__name">吃什么</span>
+  </div>
+  <div class="topbar__meta">
+    <span class="pill" id="syncState" data-state="idle">载入中</span>
+    <button class="ghost" id="passBtn" type="button" hidden>
+      <svg class="i" aria-hidden="true"><use href="#i-key"></use></svg>
+      <span>口令</span>
+    </button>
+    <button class="ghost" id="editToggle" type="button">
+      <svg class="i" aria-hidden="true"><use href="#i-lock"></use></svg>
+      <span id="editToggleText">编辑</span>
+    </button>
+  </div>
+</header>
+
+<main class="stage">
+
+  <!-- ————— 转盘 ————— -->
+  <section class="wheelzone" aria-labelledby="wheelHeading">
+    <h1 class="sr-only" id="wheelHeading">吃什么转盘</h1>
+
+    <div class="wheelwrap">
+      <div class="pointer" aria-hidden="true"></div>
+      <canvas id="wheel" role="img" aria-label="选项转盘，点击下方按钮开始抽取"></canvas>
+      <div class="hub" aria-hidden="true">
+        <span class="hub__count" id="hubCount">0</span>
+        <span class="hub__unit">项</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="spin" id="spinBtn" type="button" disabled>
+        <svg class="i" aria-hidden="true"><use href="#i-dice"></use></svg>
+        <span id="spinLabel">转一下</span>
+      </button>
+      <p class="result" id="result" aria-live="polite" aria-atomic="true">
+        <span class="result__empty">点上面的按钮，让它替你做决定</span>
+      </p>
+    </div>
+  </section>
+
+  <!-- ————— 选项面板 ————— -->
+  <aside class="panel" aria-labelledby="panelHeading">
+    <div class="panel__head">
+      <h2 id="panelHeading">选项</h2>
+      <span class="count" id="countLabel">0</span>
+    </div>
+
+    <div class="panel__tools">
+      <label class="search">
+        <svg class="i" aria-hidden="true"><use href="#i-search"></use></svg>
+        <input id="search" type="search" placeholder="搜索选项" autocomplete="off" spellcheck="false">
+      </label>
+      <button class="icon-btn" id="exportBtn" type="button" title="导出为文本" aria-label="导出为文本">
+        <svg class="i" aria-hidden="true"><use href="#i-down"></use></svg>
+      </button>
+    </div>
+
+    <!-- 分类筛选：只在转盘这一侧生效 -->
+    <div class="filters" id="filters" hidden>
+      <span class="filters__label">筛选</span>
+      <div class="filters__chips" id="filterChips"></div>
+      <button class="filters__clear" id="filterClear" type="button" hidden>全部</button>
+    </div>
+
+    <!-- 编辑态才出现的批量录入 -->
+    <div class="composer" id="composer" hidden>
+      <textarea id="pasteArea" rows="3" spellcheck="false"
+        placeholder="粘贴一整列，一行一个。逗号、顿号、分号、制表符也能自动切开。"></textarea>
+      <div class="composer__foot">
+        <span class="hint" id="parseHint">支持批量粘贴</span>
+        <div class="composer__acts">
+          <button class="ghost ghost--sm" id="appendBtn" type="button">追加</button>
+          <button class="ghost ghost--sm ghost--danger" id="replaceBtn" type="button">替换全部</button>
+        </div>
+      </div>
+      <div class="quickadd">
+        <input id="quickAdd" type="text" placeholder="输入一个，回车加入" autocomplete="off" maxlength="200">
+        <button class="icon-btn icon-btn--solid" id="quickAddBtn" type="button" aria-label="添加这一项">
+          <svg class="i" aria-hidden="true"><use href="#i-plus"></use></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="panel__body">
+    <ul class="list" id="list" aria-label="选项列表" aria-busy="true"></ul>
+
+    <!-- 首屏骨架：数据没到之前先给出结构，避免一片空白 -->
+    <div class="skeleton" id="skeleton" aria-hidden="true">
+      <div class="skeleton__row" style="--w:62%"></div>
+      <div class="skeleton__row" style="--w:78%"></div>
+      <div class="skeleton__row" style="--w:48%"></div>
+      <div class="skeleton__row" style="--w:70%"></div>
+      <div class="skeleton__row" style="--w:55%"></div>
+      <div class="skeleton__row" style="--w:66%"></div>
+    </div>
+    <div class="empty" id="emptyState" hidden>
+      <p class="empty__title">还没有选项</p>
+      <p class="empty__body">点右上角「编辑」，把候选都粘进来。</p>
+    </div>
+
+    <div class="batchbar" id="batchbar" hidden>
+      <span class="batchbar__count" id="batchCount">已选 0 项</span>
+      <div class="batchbar__acts">
+        <button class="ghost ghost--sm" id="batchTag" type="button">分类</button>
+        <button class="ghost ghost--sm" id="batchEnable" type="button">启用</button>
+        <button class="ghost ghost--sm" id="batchDisable" type="button">停用</button>
+        <button class="ghost ghost--sm ghost--danger" id="batchDelete" type="button">删除</button>
+      </div>
+    </div>
+
+    <!-- 给选中项打标签 -->
+    <div class="tagpop" id="tagPop" hidden>
+      <div class="tagpop__head">
+        <span id="tagPopTitle">给 0 项设置分类</span>
+        <button class="icon-btn" id="tagPopClose" type="button" aria-label="关闭">
+          <svg class="i" aria-hidden="true"><use href="#i-x"></use></svg>
+        </button>
+      </div>
+      <div class="tagpop__list" id="tagPopList"></div>
+      <div class="tagpop__new">
+        <input id="tagNewInput" type="text" placeholder="新分类名，回车创建" maxlength="20" autocomplete="off">
+        <button class="icon-btn icon-btn--solid" id="tagNewBtn" type="button" aria-label="创建分类">
+          <svg class="i" aria-hidden="true"><use href="#i-plus"></use></svg>
+        </button>
+      </div>
+    </div>
+    </div>
+  </aside>
+</main>
+
+<!-- 口令登录 -->
+<dialog class="dlg" id="loginDlg" aria-labelledby="loginTitle">
+  <form method="dialog" class="dlg__form" id="loginForm">
+    <h2 id="loginTitle">解锁编辑</h2>
+    <p class="dlg__sub">输入编辑口令。口令只在服务端校验，本地不留存。</p>
+    <input type="password" id="tokenInput" name="token" placeholder="编辑口令" autocomplete="current-password" required>
+    <p class="dlg__err" id="loginErr" hidden></p>
+    <div class="dlg__acts">
+      <button class="ghost" type="button" id="loginCancel">取消</button>
+      <button class="primary" type="submit" id="loginSubmit">解锁</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 管理分类 -->
+<dialog class="dlg dlg--sm" id="tagDlg" aria-labelledby="tagDlgTitle">
+  <form method="dialog" class="dlg__form" id="tagForm">
+    <h2 id="tagDlgTitle">管理分类</h2>
+    <p class="dlg__sub" id="tagDlgSub">改名，或删掉这个分类。</p>
+
+    <label class="field">
+      <span class="field__label">分类名</span>
+      <input type="text" id="tagDlgName" maxlength="20" required autocomplete="off">
+    </label>
+
+    <p class="dlg__err" id="tagDlgErr" hidden></p>
+    <div class="dlg__acts dlg__acts--split">
+      <button class="ghost ghost--danger" type="button" id="tagDlgDelete">删除分类</button>
+      <div class="dlg__acts">
+        <button class="ghost" type="button" id="tagDlgCancel">取消</button>
+        <button class="primary" type="submit" id="tagDlgSave">保存</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- 修改口令 -->
+<dialog class="dlg" id="passDlg" aria-labelledby="passTitle">
+  <form method="dialog" class="dlg__form" id="passForm">
+    <h2 id="passTitle">修改编辑口令</h2>
+    <p class="dlg__sub">改完立刻生效，不用重新部署。</p>
+
+    <label class="field" id="currentField" hidden>
+      <span class="field__label">当前口令</span>
+      <input type="password" id="passCurrent" autocomplete="current-password">
+    </label>
+
+    <label class="field">
+      <span class="field__label">新口令</span>
+      <input type="password" id="passNext" autocomplete="new-password" minlength="6" required>
+    </label>
+
+    <label class="field">
+      <span class="field__label">再输一次</span>
+      <input type="password" id="passRepeat" autocomplete="new-password" minlength="6" required>
+    </label>
+
+    <p class="dlg__err" id="passErr" hidden></p>
+    <div class="dlg__acts">
+      <button class="ghost" type="button" id="passCancel">取消</button>
+      <button class="primary" type="submit" id="passSubmit">保存口令</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+/* ────────────────────────────────────────────────
+   吃什么 · 转盘
+   静态前端 + Pages Functions + D1
+   ──────────────────────────────────────────────── */
+
+const API = {
+  wheel:   '/api/wheel',
+  health:  '/api/health',
+  login:   '/api/login',
+  logout:  '/api/logout',
+  password:'/api/password',
+  options: '/api/options',
+  batch:   '/api/options/batch',
+  import:  '/api/wheel/import',
+  export:  '/api/export',
+  tags:    '/api/tags',
+  optionTags: '/api/option-tags',
+};
+
+const CACHE_KEY = 'wheel.cache.v1';
+const DRAFT_KEY = 'wheel.draft.v1';
+
+const PALETTE = [
+  '#b4401f', '#2f6b52', '#7a4a2b', '#3d6a86',
+  '#8f3017', '#4a5f2a', '#6d3f6b', '#1f5f66',
+];
+
+/**
+ * 扇区配色。
+ * 项数少时用固定的 8 色菜单色（纸质感、色块清晰）；
+ * 项数多时改成连续色相环 —— 固定色循环会在细扇区上产生
+ * 高频摩尔纹，连续色相则收敛成平滑的渐变轮。
+ * 色相环压低饱和、抬高明度，落在纸张色域里，不跳出屏幕彩虹。
+ */
+function sliceColor(i, n) {
+  if (n <= 20) return PALETTE[i % PALETTE.length];
+  const hue = (i / n) * 360;
+  const sat = 34 + (i % 2) * 5;
+  const light = i % 2 ? 40 : 47;
+  return `hsl(${hue.toFixed(2)} ${sat}% ${light}%)`;
+}
+
+/**
+ * 密集扇区统一画成一个圆 + 锥形渐变。
+ *
+ * 关键取舍：项数超过 120 时，每个扇区在屏幕上不足 2–3 像素，
+ * 逐个上色只会得到一片噪点纹理，反而看不清。这种情况下画平滑色轮，
+ * 落点仍按真实扇区精确计算——视觉上不假装能分辨每个扇区，
+ * 指针停在哪个颜色区间仍然与结果严格对应。
+ */
+function denseColor(items) {
+  const n = items.length;
+  const grad = ctx.createConicGradient(-Math.PI / 2, 0, 0);
+
+  if (n > 120) {
+    // 平滑色轮：只用少量色标，得到干净渐变，无摩尔纹
+    const STOPS = 24;
+    for (let s = 0; s <= STOPS; s++) {
+      const t = s / STOPS;
+      const hue = t * 360;
+      grad.addColorStop(t, `hsl(${hue.toFixed(1)} 34% ${s % 2 ? 43 : 47}%)`);
+    }
+    return grad;
+  }
+
+  // 120 项以内：每个扇区一个色标，边界清晰可分辨
+  for (let i = 0; i <= n; i++) {
+    grad.addColorStop(i / n, sliceColor(i % n, n));
+  }
+  return grad;
+}
+
+/* ─────────── 状态 ─────────── */
+
+const state = {
+  options: [],
+  tags: [],
+  revision: 0,
+  editing: false,
+  query: '',
+  activeTags: new Set(),   // 转盘筛选用：只抽这些分类
+  selected: new Set(),
+  spinning: false,
+  rotation: 0,
+  savedAt: 0,
+};
+
+/* ─────────── DOM ─────────── */
+
+const $ = (s) => document.querySelector(s);
+const el = {
+  canvas:     $('#wheel'),
+  spinBtn:    $('#spinBtn'),
+  spinLabel:  $('#spinLabel'),
+  result:     $('#result'),
+  hubCount:   $('#hubCount'),
+  countLabel: $('#countLabel'),
+  list:       $('#list'),
+  empty:      $('#emptyState'),
+  skeleton:   $('#skeleton'),
+  search:     $('#search'),
+  panel:      document.querySelector('.panel'),
+  composer:   $('#composer'),
+  pasteArea:  $('#pasteArea'),
+  parseHint:  $('#parseHint'),
+  appendBtn:  $('#appendBtn'),
+  replaceBtn: $('#replaceBtn'),
+  quickAdd:   $('#quickAdd'),
+  quickAddBtn:$('#quickAddBtn'),
+  exportBtn:  $('#exportBtn'),
+  editToggle: $('#editToggle'),
+  editText:   $('#editToggleText'),
+  syncState:  $('#syncState'),
+  batchbar:   $('#batchbar'),
+  batchCount: $('#batchCount'),
+  batchTag:   $('#batchTag'),
+  batchEnable:$('#batchEnable'),
+  batchDisable:$('#batchDisable'),
+  batchDelete:$('#batchDelete'),
+  filters:    $('#filters'),
+  filterChips:$('#filterChips'),
+  filterClear:$('#filterClear'),
+  tagPop:     $('#tagPop'),
+  tagPopTitle:$('#tagPopTitle'),
+  tagPopList: $('#tagPopList'),
+  tagPopClose:$('#tagPopClose'),
+  tagNewInput:$('#tagNewInput'),
+  tagNewBtn:  $('#tagNewBtn'),
+  loginDlg:   $('#loginDlg'),
+  loginForm:  $('#loginForm'),
+  loginErr:   $('#loginErr'),
+  tokenInput: $('#tokenInput'),
+  loginCancel:$('#loginCancel'),
+  loginSubmit:$('#loginSubmit'),
+  passBtn:    $('#passBtn'),
+  passDlg:    $('#passDlg'),
+  passForm:   $('#passForm'),
+  passCurrent:$('#passCurrent'),
+  passNext:   $('#passNext'),
+  passRepeat: $('#passRepeat'),
+  passErr:    $('#passErr'),
+  passCancel: $('#passCancel'),
+  passSubmit: $('#passSubmit'),
+  currentField: $('#currentField'),
+  tagDlg:     $('#tagDlg'),
+  tagForm:    $('#tagForm'),
+  tagDlgSub:  $('#tagDlgSub'),
+  tagDlgName: $('#tagDlgName'),
+  tagDlgErr:  $('#tagDlgErr'),
+  tagDlgSave: $('#tagDlgSave'),
+  tagDlgDelete:$('#tagDlgDelete'),
+  tagDlgCancel:$('#tagDlgCancel'),
+  toast:      $('#toast'),
+};
+
+/* ─────────── 小工具 ─────────── */
+
+let toastTimer = 0;
+function toast(msg, kind = 'info') {
+  el.toast.textContent = msg;
+  el.toast.dataset.kind = kind;
+  el.toast.hidden = false;
+  requestAnimationFrame(() => el.toast.classList.add('is-on'));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    el.toast.classList.remove('is-on');
+    setTimeout(() => { el.toast.hidden = true; }, 260);
+  }, 2400);
+}
+
+function setSync(stateName, label) {
+  el.syncState.dataset.state = stateName;
+  el.syncState.textContent = label;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** 把一行文本切成单个条目：换行 / 逗号 / 顿号 / 分号 / 制表符 */
+const SPLIT_RE = /[\n\r,，、;；\t]+/;
+
+function parseLines(raw) {
+  const out = [];
+  const seen = new Set();
+  for (const piece of String(raw).split(SPLIT_RE)) {
+    const t = piece.replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
+/* ─────────── 接口 ─────────── */
+
+async function api(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const isRead = method === 'GET';
+  // 读操作可以重试（幂等）；写操作只在网络层失败（根本没拿到响应）时重试，
+  // 因为服务端可能已经执行了 —— 但选项 id 是客户端生成的，重放不会产生重复行。
+  const maxTries = isRead ? 2 : 2;
+
+  let lastErr;
+  for (let attempt = 1; attempt <= maxTries; attempt++) {
+    try {
+      const res = await fetch(path, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: opts.body ? { 'content-type': 'application/json' } : undefined,
+        ...opts,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      let data = null;
+      try { data = await res.json(); } catch { /* 非 JSON */ }
+
+      if (!res.ok) {
+        const e = new Error(data?.message || `请求失败（${res.status}）`);
+        e.status = res.status;
+        e.code = data?.error;
+        e.payload = data;
+        throw e;
+      }
+      return data;
+    } catch (e) {
+      lastErr = e;
+      // 业务错误（4xx/5xx 已拿到响应）不重试，只有网络层失败才重试
+      if (e.status) throw e;
+      if (attempt < maxTries) await sleep(400 * attempt);
+    }
+  }
+  throw lastErr;
+}
+
+/* ─────────── 本地缓存（首屏秒开 + 断网兜底） ─────────── */
+
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (!Array.isArray(d.options)) return false;
+    state.options = d.options.map(normalize);
+    if (Array.isArray(d.tags)) state.tags = d.tags.map(normalizeTag);
+    state.revision = d.revision ?? 0;
+    state.savedAt = d.at ?? 0;
+    return true;
+  } catch { return false; }
+}
+
+function saveCache() {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      options: state.options,
+      tags: state.tags,
+      revision: state.revision,
+      at: Date.now(),
+    }));
+  } catch { /* 配额满，忽略 */ }
+}
+
+/* ─────────── 拉取 ─────────── */
+
+/**
+ * 暂时连不上但本地有缓存时使用。
+ * 措辞避免让人以为「看到的是副本」——内容就是真实数据，只是可能不是最新的。
+ * 同时记录失败次数，连续多次失败才提示，避免一次抖动就报警。
+ */
+let syncFailures = 0;
+function setyncOffline() {
+  syncFailures++;
+  const label = syncFailures >= 3 ? '连接不上 · 显示缓存' : '同步中断 · 显示缓存';
+  setSync('local', label);
+  el.syncState.title = '暂时连不上服务器，当前显示的是上次成功加载的内容';
+}
+
+/**
+ * 拉取快照。
+ *
+ * 三处关键修正（都来自真实反馈）：
+ *
+ * ① 网络异常与渲染异常分开处理。
+ *    原来 try 同时包住 fetch 和 renderAll，渲染一旦出错就被误判成
+ *    「网络失败」→ 顶部显示「离线副本」，实际网络好好的。
+ *
+ * ② 数据没变就不重绘。
+ *    原来每 20 秒轮询都无条件 renderAll()，即使用户什么都没改。
+ *    每次都 replaceChildren 重建 DOM → 正在滑动时被抽走 → 闪。
+ *    现在用内容指纹比对，只有真的变了才碰界面。
+ *
+ * ③ 用户正在滚动/拖动时不重建列表，等交互停下来再更新。
+ *
+ * ④ 任何一次成功都必须把状态恢复成「已同步」。
+ *    原来只在非 silent 时更新，导致轮询成功也清不掉上一次失败留下的提示。
+ */
+async function pull({ silent = false } = {}) {
+  if (!silent) setSync('idle', '载入中');
+
+  let d;
+  try {
+    d = await api(API.wheel);
+  } catch (e) {
+    // 只有这里才是真正的网络/服务异常
+    if (state.options.length) {
+      // 有缓存可用：说明是「暂时连不上，先显示上次的内容」
+      setyncOffline();
+    } else {
+      setSync('error', '连接失败');
+    }
+    if (!silent) toast(e.message || '加载失败', 'error');
+    return false;
+  }
+
+  const nextOptions = d.options.map(normalize);
+  const nextTags = Array.isArray(d.tags) ? d.tags.map(normalizeTag) : state.tags;
+
+  // 内容指纹：id + 文本 + 启用位 + 分类，任意一项变化才需要重绘
+  const fingerprint = (opts, tags) =>
+    opts.length +
+    '|' + opts.map((o) => `${o.id}:${o.text}:${o.disabled}:${(o.tags || []).join('.')}`).join(',') +
+    '|' + tags.map((t) => `${t.id}:${t.name}`).join(',');
+
+  const prev = fingerprint(state.options, state.tags);
+  const next = fingerprint(nextOptions, nextTags);
+  const changed = prev !== next || d.revision !== state.revision;
+
+  state.options = nextOptions;
+  state.tags = nextTags;
+  state.revision = d.revision;
+  saveCache();
+
+  // 数据到手（哪怕是空列表）就收起首屏骨架
+  if (el.skeleton) el.skeleton.hidden = true;
+  el.list.setAttribute('aria-busy', 'false');
+
+  if (changed) {
+    // 用户正在拖动列表时先不动 DOM，等他松手（scroll 结束会再触发一次）
+    if (isInteracting()) {
+      pendingRender = true;
+    } else {
+      renderAll();
+    }
+  }
+
+  // 转盘项数、筛选芯片的计数也可能因标签变化而变，但那是轻量重算
+  if (!changed && !silent) renderAll();
+
+  // 只要这次成功拿到数据，就必须把状态恢复成「已同步」。
+  // 原来只在非 silent 时更新，导致轮询（silent）即使成功也清不掉
+  // 上一次失败留下的「离线副本」——网络早恢复了，提示还挂着。
+  syncFailures = 0;
+  el.syncState.title = '';
+  setSync('ok', changed ? '已更新' : '已同步');
+  return changed;
+}
+
+/* 交互状态：滚动惯性/手指拖动期间不重建列表 */
+let interacting = false;
+let interactTimer = 0;
+let pendingRender = false;
+
+function isInteracting() {
+  return interacting;
+}
+
+function markInteracting(ms = 220) {
+  interacting = true;
+  clearTimeout(interactTimer);
+  interactTimer = setTimeout(() => {
+    interacting = false;
+    if (pendingRender) {
+      pendingRender = false;
+      renderAll();
+    }
+  }, ms);
+}
+
+/**
+ * 后台静默同步：草稿和输入框不会被覆盖，只在数据真的变了时重绘。
+ * 编辑中不打断用户（避免正在改的那行被替换掉）。
+ */
+let pollTimer = 0;
+function startPolling() {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    if (document.hidden) return;
+    if (state.editing) return;          // 编辑中不打断
+    if (state.spinning) return;
+    await pull({ silent: true });
+  }, 20000);
+}
+
+// 切回标签页时立刻同步一次 —— 这就是「不用手动刷新」
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !state.editing) pull({ silent: true });
+});
+
+function normalize(o) {
+  return {
+    id: o.id,
+    text: o.text,
+    weight: Number(o.weight) || 1,
+    disabled: Number(o.disabled) ? 1 : 0,
+    sort: Number(o.sort) || 0,
+    tags: Array.isArray(o.tags) ? o.tags : [],
+  };
+}
+
+function normalizeTag(t) {
+  return {
+    id: t.id,
+    name: t.name,
+    color: t.color || '',
+    sort: Number(t.sort) || 0,
+  };
+}
+
+/* ─────────── 写操作（乐观 + 冲突处理） ─────────── */
+
+/**
+ * 写操作。
+ *
+ * 两种模式：
+ *  · optimistic：先改本地并立刻重绘，再发请求。链路慢（1–3s/往返）时用户看不到等待。
+ *    失败则回滚到操作前的快照。
+ *  · 默认：等服务端确认再重绘（用于批量替换这类不能猜的操作）。
+ */
+async function mutate(run, { label = '保存中', optimistic } = {}) {
+  const before = optimistic
+    ? { options: state.options.map((o) => ({ ...o })), revision: state.revision }
+    : null;
+
+  if (optimistic) {
+    optimistic.apply();
+    saveCache();
+    renderAll();
+  }
+
+  setSync('saving', label);
+  const t0 = performance.now();
+  try {
+    const res = await run();
+    if (Array.isArray(res?.options)) {
+      // 写接口直接回吐完整快照 —— 一次往返，且绕开缓存
+      state.options = res.options.map(normalize);
+      if (Array.isArray(res.tags)) state.tags = res.tags.map(normalizeTag);
+      state.revision = res.revision ?? state.revision;
+      saveCache();
+      renderAll();
+    } else if (!optimistic) {
+      await pull({ silent: true });
+    }
+    setSync('ok', `已保存 · ${Math.round(performance.now() - t0)}ms`);
+    return res;
+  } catch (e) {
+    if (before) {
+      state.options = before.options;
+      state.revision = before.revision;
+      saveCache();
+      renderAll();
+    }
+    if (e.code === 'revision_conflict') {
+      if (Array.isArray(e.payload?.options)) {
+        state.options = e.payload.options.map(normalize);
+        state.revision = e.payload.revision;
+        saveCache();
+        renderAll();
+      }
+      setSync('ok', '已同步');
+      toast('别处改过，已拉取最新内容，请再试一次', 'error');
+    } else {
+      setSync('error', '保存失败');
+      toast(e.message || '保存失败（已还原）', 'error');
+    }
+    throw e;
+  }
+}
+
+/* ─────────── 转盘绘制 ─────────── */
+
+const ctx = el.canvas.getContext('2d');
+let wheelSize = 0;
+
+/**
+ * 转盘实际参与抽取的选项：启用的 + 命中当前分类筛选的。
+ * 没选任何分类 = 不过滤；选了多个分类 = 并集（属于任一即可）。
+ */
+function activeOptions() {
+  const pool = state.options.filter((o) => !o.disabled && o.text);
+  if (!state.activeTags.size) return pool;
+  return pool.filter((o) => (o.tags || []).some((t) => state.activeTags.has(t)));
+}
+
+function fitCanvas() {
+  const rect = el.canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  const size = Math.max(180, Math.round(rect.width));
+  if (size === wheelSize && el.canvas.width === size * dpr) return;
+  wheelSize = size;
+  el.canvas.width = Math.round(size * dpr);
+  el.canvas.height = Math.round(size * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawWheel();
+}
+
+function drawWheel() {
+  const items = activeOptions();
+  const S = wheelSize || 320;
+  const R = S / 2;
+  ctx.clearRect(0, 0, S, S);
+  ctx.save();
+  ctx.translate(R, R);
+
+  if (!items.length) {
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 1, 0, Math.PI * 2);
+    ctx.fillStyle = '#ece5d7';
+    ctx.fill();
+    ctx.strokeStyle = '#ddd2c0';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  const total = items.reduce((s, o) => s + Math.max(0.0001, o.weight), 0);
+  const TAU = Math.PI * 2;
+  let angle = -Math.PI / 2;
+
+  // 扇区越密越不该画分隔线与文字，否则整圈糊成干涉纹
+  const avgSweep = TAU / items.length;
+  const drawStroke = avgSweep > 0.012;      // ≈ 少于 520 项才画细线
+  const drawText = avgSweep > 0.24;          // ≈ 少于 26 项才有文字
+
+  /* 密集扇区（>60 项）：逐个填充三角形会在弧边留下抗锯齿接缝，
+     整圈看起来像毛边。这种情况下一次画满整圆，再用锥形渐变上色。 */
+  if (items.length > 60) {
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 1, 0, TAU);
+    ctx.closePath();
+    ctx.fillStyle = denseColor(items);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  items.forEach((o, i) => {
+    const sweep = (Math.max(0.0001, o.weight) / total) * TAU;
+    const color = sliceColor(i, items.length);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, R - 1, angle, angle + sweep);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    if (drawStroke) {
+      ctx.strokeStyle = 'rgba(251, 248, 241, .55)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // 文字：够宽才画；下半圆整体翻转 180°，避免倒字
+    if (drawText && sweep > 0.24) {
+      const mid = angle + sweep / 2;
+
+      const pad = 16;
+      const hubR = R * 0.325;
+      const outer = R - pad;
+      const maxW = outer - hubR;
+      const fs = Math.round(
+        Math.max(10.5, Math.min(16, R * 0.042 + (sweep > 0.7 ? R * 0.016 : 0)))
+      );
+
+      // 宽扇区用切向排字（垂直于半径）——正下方/正上方的扇区因此是横排，
+      // 不会出现 90° 竖排的怪相；窄扇区用径向排字，空间利用率更高。
+      const wide = sweep > 0.62;
+      const rLabel = wide ? (outer + hubR) / 2 : outer;
+
+      ctx.save();
+      ctx.rotate(mid);
+      ctx.translate(rLabel, 0);
+
+      ctx.font = `600 ${fs}px "PingFang SC","Microsoft YaHei",system-ui,sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,.97)';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = wide ? 'center' : 'right';
+
+      const label = ellipsize(ctx, o.text, maxW);
+
+      if (wide) {
+        // 切向：再加 90°；若因此倒置则补 180°
+        let t = Math.PI / 2;
+        if (Math.cos(mid + t) < 0) t += Math.PI;
+        ctx.rotate(t);
+        ctx.fillText(label, 0, 0);
+      } else {
+        // 径向：文字朝圆心方向书写；指向左半侧时补 180° 防倒置
+        if (Math.cos(mid) < -0.02) {
+          ctx.rotate(Math.PI);
+          ctx.textAlign = 'left';
+        }
+        ctx.fillText(label, 0, 0);
+      }
+      ctx.restore();
+    }
+
+    angle += sweep;
+  });
+
+  ctx.restore();
+}
+
+function ellipsize(c, text, maxW) {
+  if (c.measureText(text).width <= maxW) return text;
+  let s = text;
+  while (s.length > 1 && c.measureText(s + '…').width > maxW) s = s.slice(0, -1);
+  return s + '…';
+}
+
+let rafId = 0;
+
+async function spin() {
+  const items = activeOptions();
+  if (state.spinning || items.length === 0) return;
+
+  state.spinning = true;
+  el.spinBtn.disabled = true;
+  el.spinLabel.textContent = '转着…';
+  el.result.innerHTML = '<span class="result__empty">……</span>';
+
+  // 按权重抽：pick 落在 [0, total) 上
+  const total = items.reduce((s, o) => s + Math.max(0.0001, o.weight), 0);
+  const pick = Math.random() * total;
+
+  const segs = [];
+  let acc = 0;
+  for (let i = 0; i < items.length; i++) {
+    const sweep = (Math.max(0.0001, items[i].weight) / total) * 360;
+    segs.push({ start: acc, sweep });
+    acc += sweep;
+  }
+
+  // pick 换算成角度后再定位扇区（单位必须一致：pick 是权重，sweep 是角度）
+  const pickAngle = (pick / total) * 360;
+  let chosen = items.length - 1;
+  let c = 0;
+  for (let i = 0; i < segs.length; i++) {
+    if (pickAngle < c + segs[i].sweep) { chosen = i; break; }
+    c += segs[i].sweep;
+  }
+
+  // 第一段从 -90° 开始，扇区中心角（相对起始）：
+  const center = segs[chosen].start + segs[chosen].sweep / 2 - 90;
+
+  const cur = ((state.rotation % 360) + 360) % 360;
+  const desired = (((-90 - center) % 360) + 360) % 360;
+  let delta = desired - cur;
+  delta = ((delta % 360) + 360) % 360;
+  const turns = 5 + Math.floor(Math.random() * 2);
+  const from = state.rotation;
+  const to = from + turns * 360 + delta;
+
+  const dur = 4200;
+  const t0 = performance.now();
+  const ease = (t) => 1 - Math.pow(1 - t, 4);
+
+  await new Promise((resolve) => {
+    cancelAnimationFrame(rafId);
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      state.rotation = from + (to - from) * ease(t);
+      el.canvas.style.transform = `rotate(${state.rotation}deg)`;
+      if (t < 1) {
+        rafId = requestAnimationFrame(step);
+      } else {
+        resolve();
+      }
+    };
+    rafId = requestAnimationFrame(step);
+  });
+
+  state.spinning = false;
+  el.spinBtn.disabled = false;
+  el.spinLabel.textContent = '再转一次';
+
+  const win = items[chosen];
+  showResult(win);
+  highlight(win.id);
+}
+
+function showResult(o) {
+  el.result.innerHTML = '';
+  const wrap = document.createElement('span');
+  wrap.className = 'result__value';
+  const main = document.createElement('span');
+  main.textContent = o.text;
+  const small = document.createElement('small');
+  small.textContent = '就它了';
+  wrap.append(main, small);
+  el.result.append(wrap);
+}
+
+function highlight(id) {
+  for (const row of el.list.querySelectorAll('.row')) {
+    row.classList.toggle('is-hit', row.dataset.id === id);
+  }
+}
+
+/* ─────────── 列表渲染（窗口化 + 增量更新） ─────────── */
+
+const ROW_H = 38;
+const OVERSCAN = 6;      // 视窗上下各多渲染几行，滚动手感更稳
+let renderRaf = 0;
+let lastSig = '';
+
+/**
+ * 已挂载的行：index -> <li>。
+ * 滚动时只增删「进入/离开窗口」的那几行，绝不清空重插。
+ *
+ * 为什么必须这样：
+ * replaceChildren 会把列表内容整体换掉，浏览器会把 scrollTop 重新
+ * clamp 到新的内容高度，滚动位置发生跳动 —— 用户看到的就是「闪」。
+ * 增量更新后，已有行连 DOM 节点都不换，滚动完全平稳。
+ */
+const mounted = new Map();
+
+function visibleOptions() {
+  const q = state.query.trim().toLowerCase();
+  if (!q) return state.options;
+  return state.options.filter((o) => o.text.toLowerCase().includes(q));
+}
+
+/** 计算当前应该渲染的行区间 */
+function windowRange(items, scrollTop, viewH) {
+  const start = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const end = Math.min(items.length, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN);
+  return { start, end };
+}
+
+function ensureSpacer(heightPx) {
+  let sp = el.list.querySelector('.list__spacer');
+  if (!sp) {
+    sp = document.createElement('li');
+    sp.className = 'list__spacer';
+    sp.setAttribute('aria-hidden', 'true');
+    el.list.append(sp);
+  }
+  sp.style.height = `${heightPx}px`;
+}
+
+/**
+ * 渲染列表。
+ *
+ * 三条硬约束（都由真实反馈换来）：
+ *  ① 滚动中不重建整段 DOM —— replaceChildren 会让 scrollTop 跳动
+ *  ② 内容没变不碰界面 —— 20 秒轮询每次都重绘会让正在看的列表闪一下
+ *  ③ 行不要代入场动画 —— 重建时重放会导致文字停在 opacity:0
+ */
+function renderList() {
+  const items = visibleOptions();
+  const scrollTop = el.list.scrollTop;
+  const viewH = el.list.clientHeight || 420;
+  const { start, end } = windowRange(items, scrollTop, viewH);
+
+  // 有数据了就把骨架收起来
+  if (items.length && el.skeleton) {
+    el.skeleton.hidden = true;
+    el.list.setAttribute('aria-busy', 'false');
+  }
+  const sig = `${start}:${end}:${items.length}:${state.query}:${state.editing ? 1 : 0}:${state.revision}:${state.tags.length}`;
+  if (sig === lastSig) return;
+  lastSig = sig;
+
+  el.list.style.position = 'relative';
+  ensureSpacer(items.length * ROW_H);
+
+  // ① 先移除离开窗口的行
+  for (const [idx, node] of mounted) {
+    if (idx < start || idx >= end || idx >= items.length) {
+      node.remove();
+      mounted.delete(idx);
+    }
+  }
+
+  // ② 再补齐进入窗口的行；已存在的只在数据变化时更新内容
+  for (let i = start; i < end; i++) {
+    const o = items[i];
+    const existing = mounted.get(i);
+    if (existing && existing.dataset.id === o.id) {
+      // 同一行同一条数据：只同步可能变的视觉状态，不重建
+      existing.classList.toggle('is-off', !!o.disabled);
+      existing.classList.toggle('is-pending', !!o._pending);
+      const t = existing.querySelector('.row__text');
+      if (t && t.textContent !== o.text) t.textContent = o.text;
+      const chk = existing.querySelector('.row__check');
+      if (chk) chk.checked = state.selected.has(o.id);
+      continue;
+    }
+    if (existing) { existing.remove(); mounted.delete(i); }
+
+    const row = buildRow(o, i);
+    row.style.top = `${i * ROW_H}px`;
+    el.list.append(row);
+    mounted.set(i, row);
+  }
+
+  el.empty.hidden = items.length > 0;
+  el.countLabel.textContent = state.query
+    ? `${items.length} / ${state.options.length}`
+    : String(state.options.length);
+}
+
+/** 强制清空重来（数据整体替换、退出编辑、切换筛选时用） */
+function rebuildList() {
+  for (const [, node] of mounted) node.remove();
+  mounted.clear();
+  lastSig = '';
+  renderList();
+}
+
+function buildRow(o, i) {
+  const li = document.createElement('li');
+  li.className = 'row' + (o.disabled ? ' is-off' : '') + (o._pending ? ' is-pending' : '');
+  li.dataset.id = o.id;
+  li.style.top = `${i * ROW_H}px`;
+
+  const check = document.createElement('input');
+  check.type = 'checkbox';
+  check.className = 'row__check';
+  check.checked = state.selected.has(o.id);
+  check.setAttribute('aria-label', `选择 ${o.text}`);
+  check.addEventListener('change', () => {
+    if (check.checked) state.selected.add(o.id);
+    else state.selected.delete(o.id);
+    updateBatchBar();
+  });
+
+  const num = document.createElement('span');
+  num.className = 'row__num';
+  num.textContent = String(i + 1);
+
+  const text = document.createElement('div');
+  text.className = 'row__text';
+  text.textContent = o.text;
+  text.title = o.text;
+  text.dataset.id = o.id;
+  if (state.editing) {
+    text.setAttribute('contenteditable', 'plaintext-only');
+    text.spellcheck = false;
+    text.addEventListener('focus', () => { text.dataset.before = text.textContent; });
+    text.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); text.blur(); }
+      if (e.key === 'Escape') { text.textContent = text.dataset.before ?? o.text; text.blur(); }
+    });
+    text.addEventListener('blur', () => {
+      const before = text.dataset.before ?? o.text;
+      const after = (text.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (!after) { text.textContent = before; return; }
+      if (after === before) { text.textContent = after; return; }
+      text.textContent = after;
+      renameOption(o.id, after);
+    });
+  }
+
+  const acts = document.createElement('div');
+  acts.className = 'row__acts';
+  if (state.editing) {
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'row__del';
+    del.title = '删除';
+    del.setAttribute('aria-label', `删除 ${o.text}`);
+    del.innerHTML = '<svg class="i" aria-hidden="true"><use href="#i-trash"></use></svg>';
+    del.addEventListener('click', () => removeOption(o.id));
+    acts.append(del);
+  }
+
+  // 标签点：让用户一眼看出这一项属于哪些分类
+  const dots = document.createElement('div');
+  dots.className = 'row__tagdots';
+  for (const tid of o.tags || []) {
+    const i = document.createElement('i');
+    i.style.background = tagColorOf(tid) || 'var(--ink-3)';
+    i.title = state.tags.find((t) => t.id === tid)?.name || '';
+    dots.append(i);
+  }
+
+  li.append(check, num, text, dots, acts);
+
+  if (state.editing) {
+    li.addEventListener('click', (e) => {
+      if (e.target.closest('.row__del, .row__check, .row__text')) return;
+      toggleDisabled(o);
+    });
+  }
+
+  return li;
+}
+
+function scheduleRender() {
+  if (renderRaf) return;
+  renderRaf = requestAnimationFrame(() => {
+    renderRaf = 0;
+    renderList();
+  });
+}
+function renderAll() {
+  el.hubCount.textContent = String(activeOptions().length);
+  drawWheel();
+  el.spinBtn.disabled = state.spinning || activeOptions().length === 0;
+  renderFilters();
+  invalidateList();     // 数据变了：强制重算一次列表
+  renderList();
+  updateBatchBar();
+}
+
+/** 让下一次 renderList 重新计算（不清空 DOM，只重置比对签名） */
+function invalidateList() {
+  lastSig = '';
+}
+
+/* ─────────── 分类筛选 ─────────── */
+
+function renderFilters() {
+  const hasTags = state.tags.length > 0;
+  el.filters.hidden = !hasTags;
+  if (!hasTags) return;
+
+  // 每个分类有多少项参与（受启用状态影响）
+  const counts = {};
+  for (const o of state.options) {
+    if (o.disabled || !o.text) continue;
+    for (const t of o.tags || []) counts[t] = (counts[t] || 0) + 1;
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const t of state.tags) {
+    const n = counts[t.id] || 0;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip' + (state.activeTags.has(t.id) ? ' is-on' : '');
+    b.dataset.tag = t.id;
+    if (t.color) b.style.setProperty('--chip', t.color);
+    b.innerHTML =
+      `<span class="chip__dot"></span>` +
+      `<span>${escapeHtml(t.name)}</span>` +
+      `<span class="chip__n">${n}</span>`;
+    b.addEventListener('click', () => toggleTagFilter(t.id));
+    frag.append(b);
+  }
+  el.filterChips.replaceChildren(frag);
+  el.filterClear.hidden = state.activeTags.size === 0;
+}
+
+function toggleTagFilter(id) {
+  if (state.activeTags.has(id)) state.activeTags.delete(id);
+  else state.activeTags.add(id);
+  // 筛选后当前结果可能为空，提示一下
+  const n = activeOptions().length;
+  if (n === 0) toast('这个筛选下没有可选项', 'error');
+  renderAll();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+}
+
+function tagColorOf(id) {
+  const t = state.tags.find((x) => x.id === id);
+  return t?.color || '';
+}
+
+/* ─────────── 给选项打标签 ─────────── */
+
+async function setOptionTags(optionIds, tagIds, mode) {
+  await mutate(
+    () => api(API.optionTags, { method: 'POST', body: { optionIds, tagIds, mode } }),
+    {
+      label: '更新分类',
+      optimistic: {
+        apply: () => {
+          for (const o of state.options) {
+            if (!optionIds.includes(o.id)) continue;
+            const set = new Set(o.tags || []);
+            for (const t of tagIds) {
+              if (mode === 'remove') set.delete(t);
+              else set.add(t);
+            }
+            o.tags = [...set];
+          }
+        },
+      },
+    }
+  ).catch(() => {});
+}
+
+async function createTag(name, thenApplyTo) {
+  const trimmed = name.trim().slice(0, 20);
+  if (!trimmed) return null;
+  try {
+    const res = await mutate(
+      () => api(API.tags, { method: 'POST', body: { name: trimmed } }),
+      { label: '建分类' }
+    );
+    const created = state.tags.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+    if (created && thenApplyTo?.length) {
+      await setOptionTags(thenApplyTo, [created.id], 'add');
+    }
+    return created;
+  } catch (e) {
+    if (e.code === 'duplicate') toast('这个分类已经有了', 'error');
+    return null;
+  }
+}
+
+function openTagPop() {
+  const ids = [...state.selected];
+  if (!ids.length) return;
+  el.tagPop.hidden = false;
+  el.tagPopTitle.textContent = `给 ${ids.length} 项设置分类`;
+  renderTagPopList(ids);
+  el.tagNewInput.value = '';
+  el.tagNewInput.focus();
+}
+
+function renderTagPopList(optionIds) {
+  const frag = document.createDocumentFragment();
+
+  if (!state.tags.length) {
+    el.tagPopList.replaceChildren(frag);
+    return;
+  }
+
+  // 选中项共同的标签 = 全部都有；部分有的显示为半选态
+  for (const t of state.tags) {
+    const owning = state.options.filter(
+      (o) => optionIds.includes(o.id) && (o.tags || []).includes(t.id)
+    ).length;
+    const all = owning === optionIds.length;
+    const some = owning > 0 && !all;
+
+    // 每个分类是一个「芯片 + 编辑按钮」的组合，编辑态才能改名/删除
+    const wrap = document.createElement('span');
+    wrap.className = 'tagchip';
+
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip' + (all ? ' is-on' : '');
+    b.style.opacity = some ? '.72' : '1';
+    b.innerHTML =
+      (t.color ? `<span class="chip__dot" style="background:${t.color}"></span>` : '<span class="chip__dot"></span>') +
+      `<span>${escapeHtml(t.name)}</span>`;
+    b.title = all ? '点一下移除' : some ? `${owning}/${optionIds.length} 项已有` : '点一下加上';
+    b.addEventListener('click', async () => {
+      const mode = all ? 'remove' : 'add';
+      await setOptionTags(optionIds, [t.id], mode);
+      renderTagPopList(optionIds);
+    });
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'tagchip__edit';
+    edit.setAttribute('aria-label', `管理分类 ${t.name}`);
+    edit.title = '改名 / 删除';
+    edit.innerHTML = '<svg class="i" aria-hidden="true"><use href="#i-edit"></use></svg>';
+    edit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openTagMenu(t, optionIds);
+    });
+
+    wrap.append(b, edit);
+    frag.append(wrap);
+  }
+  el.tagPopList.replaceChildren(frag);
+}
+
+/* ─────────── 管理单个分类：改名 / 删除 ─────────── */
+
+let tagDlgCtx = null;   // { tag, optionIds }
+
+function openTagMenu(tag, optionIds) {
+  tagDlgCtx = { tag, optionIds };
+  el.tagDlgErr.hidden = true;
+  el.tagDlgName.value = tag.name;
+  const used = state.options.filter((o) => (o.tags || []).includes(tag.id)).length;
+  el.tagDlgSub.textContent = used
+    ? `改名，或删掉这个分类。它目前关联 ${used} 个选项。`
+    : '改名，或删掉这个分类。它还没有关联任何选项。';
+  el.tagDlg.showModal();
+  setTimeout(() => { el.tagDlgName.focus(); el.tagDlgName.select(); }, 30);
+}
+
+async function submitTagDialog() {
+  if (!tagDlgCtx) return;
+  const { tag, optionIds } = tagDlgCtx;
+  const name = el.tagDlgName.value.trim();
+
+  if (!name) {
+    el.tagDlgErr.hidden = false;
+    el.tagDlgErr.textContent = '分类名不能为空';
+    return;
+  }
+  if (name === tag.name) { el.tagDlg.close(); return; }
+
+  el.tagDlgSave.disabled = true;
+  try {
+    await renameTag(tag, name, optionIds);
+    el.tagDlg.close();
+  } catch (e) {
+    el.tagDlgErr.hidden = false;
+    el.tagDlgErr.textContent = e.code === 'duplicate' ? '已经有同名分类了' : (e.message || '保存失败');
+  } finally {
+    el.tagDlgSave.disabled = false;
+  }
+}
+
+async function renameTag(tag, name, optionIds) {
+  await mutate(
+    () => api(`${API.tags}/${tag.id}`, { method: 'PATCH', body: { name } }),
+    {
+      label: '改分类名',
+      optimistic: { apply: () => { tag.name = name; } },
+    }
+  );
+  toast(`分类已改名为「${name}」`);
+  if (optionIds?.length) renderTagPopList(optionIds);
+}
+
+async function deleteTag(tag, optionIds) {
+  const used = state.options.filter((o) => (o.tags || []).includes(tag.id)).length;
+  const msg = used
+    ? `删除分类「${tag.name}」？\n\n有 ${used} 个选项属于它，删除后这些选项只是失去这个分类，不会被删掉。`
+    : `删除分类「${tag.name}」？`;
+  if (!confirm(msg)) return;
+
+  el.tagDlg.close();
+  await mutate(
+    () => api(`${API.tags}/${tag.id}`, { method: 'DELETE' }),
+    {
+      label: '删分类',
+      optimistic: {
+        apply: () => {
+          state.tags = state.tags.filter((x) => x.id !== tag.id);
+          state.activeTags.delete(tag.id);
+          for (const o of state.options) {
+            if (o.tags) o.tags = o.tags.filter((x) => x !== tag.id);
+          }
+        },
+      },
+    }
+  ).then(() => toast(`已删除分类「${tag.name}」`))
+   .catch(() => {});
+  if (optionIds?.length) renderTagPopList(optionIds);
+}
+
+/* ─────────── 编辑操作 ─────────── */
+
+async function renameOption(id, text) {
+  const o = state.options.find((x) => x.id === id);
+  if (!o || o.text === text) return;
+  await mutate(
+    () => api(`${API.options}/${id}`, { method: 'PATCH', body: { text } }),
+    {
+      label: '改名中',
+      optimistic: { apply: () => { o.text = text; } },
+    }
+  ).catch(() => {});
+}
+
+async function removeOption(id) {
+  const o = state.options.find((x) => x.id === id);
+  if (!o) return;
+  if (!confirm(`删除「${o.text}」？`)) return;
+  const idx = state.options.findIndex((x) => x.id === id);
+  state.selected.delete(id);
+  await mutate(
+    () => api(`${API.options}/${id}?hard=1`, { method: 'DELETE' }),
+    {
+      label: '删除中',
+      optimistic: { apply: () => { state.options.splice(idx, 1); } },
+    }
+  ).catch(() => {});
+}
+
+async function toggleDisabled(o) {
+  const next = o.disabled ? 0 : 1;
+  await mutate(
+    () => api(`${API.options}/${o.id}`, { method: 'PATCH', body: { disabled: next } }),
+    {
+      label: next ? '停用中' : '启用中',
+      optimistic: { apply: () => { o.disabled = next; } },
+    }
+  )
+    .then(() => toast(next ? `已停用「${o.text}」` : `已启用「${o.text}」`))
+    .catch(() => {});
+}
+
+async function addTexts(texts, mode = 'append', title) {
+  const list = texts.map((t) => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (!list.length) return;
+
+  if (mode === 'replace') {
+    if (!confirm(`用这 ${list.length} 条替换全部选项？原来的会被清空。`)) return;
+    await mutate(
+      () => api(API.import, { method: 'POST', body: { mode: 'replace', texts: list, title } }),
+      { label: '替换中' }
+    );
+    toast(`已替换为 ${list.length} 项`);
+    return;
+  }
+
+  // 追加：先在本地算出会新增什么，立刻显示，再等服务端确认
+  const existing = new Set(state.options.map((o) => o.text.toLowerCase()));
+  const fresh = [];
+  for (const t of list) {
+    const k = t.toLowerCase();
+    if (existing.has(k)) continue;
+    existing.add(k);
+    fresh.push(t);
+  }
+  if (!fresh.length) {
+    toast('这些都已经在列表里了');
+    return;
+  }
+
+  const baseSort = state.options.length
+    ? Math.max(...state.options.map((o) => o.sort)) + 1
+    : 0;
+  const pending = fresh.map((text, i) => ({
+    id: 'tmp-' + crypto.randomUUID(),
+    text,
+    weight: 1,
+    disabled: 0,
+    sort: baseSort + i,
+    tags: [],          // 新加的项默认无分类
+    _pending: true,    // 仅用于显示「保存中」的下划线，服务端快照会把它覆盖掉
+  }));
+
+  const res = await mutate(
+    () => api(API.options, { method: 'POST', body: { texts: list } }),
+    {
+      label: `写入 ${fresh.length} 条`,
+      optimistic: { apply: () => { state.options = state.options.concat(pending); } },
+    }
+  );
+
+  // 成功路径下服务端快照已经替换了本地数组，_pending 自然消失。
+  // 失败路径 mutate 会回滚到操作前快照，临时行也一并撤销。
+  const added = res?.added?.length ?? fresh.length;
+  const skipped = res?.skipped ?? 0;
+  toast(skipped ? `新增 ${added} 项，跳过重复 ${skipped} 项` : `新增 ${added} 项`);
+}
+
+/* ─────────── 批量条 ─────────── */
+
+function updateBatchBar() {
+  const n = state.selected.size;
+  el.batchbar.hidden = !state.editing || n === 0;
+  el.batchCount.textContent = `已选 ${n} 项`;
+}
+
+async function batchOp(kind) {
+  const ids = [...state.selected];
+  if (!ids.length) return;
+
+  if (kind === 'delete') {
+    if (!confirm(`删除选中的 ${ids.length} 项？`)) return;
+    const keep = state.options.filter((o) => !ids.includes(o.id));
+    await mutate(
+      () => api(API.batch, { method: 'POST', body: { remove: ids } }),
+      {
+        label: '删除中',
+        optimistic: { apply: () => { state.options = keep; } },
+      }
+    ).catch(() => {});
+    state.selected.clear();
+    updateBatchBar();
+    return;
+  }
+
+  const disabled = kind === 'disable' ? 1 : 0;
+  await mutate(
+    () => api(API.batch, {
+      method: 'POST',
+      body: { update: ids.map((id) => ({ id, disabled })) },
+    }),
+    {
+      label: '批量更新',
+      optimistic: {
+        apply: () => {
+          for (const o of state.options) if (ids.includes(o.id)) o.disabled = disabled;
+        },
+      },
+    }
+  ).catch(() => {});
+  state.selected.clear();
+  updateBatchBar();
+}
+
+/* ─────────── 编辑模式 ─────────── */
+
+async function enterEdit() {
+  // 已登录则直接进
+  try {
+    const h = await api(API.health);
+    if (h.session === 'authed') {
+      setEditing(true);
+      return;
+    }
+  } catch { /* 忽略，走登录 */ }
+
+  el.loginErr.hidden = true;
+  el.tokenInput.value = '';
+  el.loginDlg.showModal();
+  setTimeout(() => el.tokenInput.focus(), 30);
+}
+
+function setEditing(on) {
+  state.editing = on;
+  el.panel.dataset.edit = on ? '1' : '0';
+  el.composer.hidden = !on;
+  el.editToggle.classList.toggle('is-on', on);
+  el.editText.textContent = on ? '完成' : '编辑';
+  el.passBtn.hidden = !on;          // 改口令入口只在解锁后出现
+  if (!on) {
+    state.selected.clear();
+    pull({ silent: true });          // 退出编辑同步一次，别人的改动立刻可见
+  }
+  // 进出编辑态会增删行内的复选框/删除按钮，必须整段重建
+  el.hubCount.textContent = String(activeOptions().length);
+  drawWheel();
+  el.spinBtn.disabled = state.spinning || activeOptions().length === 0;
+  renderFilters();
+  rebuildList();
+  updateBatchBar();
+  if (on) {
+    toast('编辑已解锁');
+    el.quickAdd.focus();
+  }
+}
+
+async function doLogin(token) {
+  el.loginSubmit.disabled = true;
+  el.loginErr.hidden = true;
+  try {
+    const res = await api(API.login, { method: 'POST', body: { token } });
+    el.loginDlg.close();
+    setEditing(true);
+    // 还在用环境变量的引导口令，提醒一次
+    if (res?.bootstrap) {
+      setTimeout(() => toast('当前是初始口令，点右上角「口令」换成自己的'), 1200);
+    }
+  } catch (e) {
+    el.loginErr.hidden = false;
+    el.loginErr.textContent = e.code === 'bad_token' ? '口令不对，再试一次' : (e.message || '登录失败');
+    el.loginSubmit.disabled = false;
+    el.tokenInput.select();
+  }
+}
+
+/* ─────────── 修改口令 ─────────── */
+
+async function openPassDialog() {
+  el.passErr.hidden = true;
+  el.passNext.value = '';
+  el.passRepeat.value = '';
+  el.passCurrent.value = '';
+
+  /*
+   * 显示「当前口令」的条件：
+   *   bootstrapPass === true  表示还在用环境变量里的初始口令（D1 里没有记录），
+   *   此时后端不要求 current，直接设新口令即可。
+   *   bootstrapPass === false 表示已经设过自定义口令，后端会强制校验 current。
+   *
+   * 之前这里写成 `hidden = !bootstrap`，正好反了：
+   * 用户改过一次口令后就再也看不到「当前口令」输入框，
+   * 提交空字符串 → 后端比对失败 → 一直提示「当前口令不正确」。
+   */
+  let needCurrent = true;
+  try {
+    const h = await api(API.health);
+    needCurrent = h.bootstrapPass === false;
+  } catch {
+    needCurrent = true;    // 拿不到就用更严格的一侧
+  }
+  el.currentField.hidden = !needCurrent;
+
+  el.passDlg.showModal();
+  setTimeout(() => {
+    (needCurrent ? el.passCurrent : el.passNext).focus();
+  }, 30);
+}
+
+async function savePass() {
+  el.passErr.hidden = true;
+  const next = el.passNext.value;
+  const again = el.passRepeat.value;
+  const cur = el.passCurrent.value;
+
+  if (next.length < 6) {
+    el.passErr.hidden = false;
+    el.passErr.textContent = '新口令至少 6 位';
+    return;
+  }
+  if (next !== again) {
+    el.passErr.hidden = false;
+    el.passErr.textContent = '两次输入不一致';
+    return;
+  }
+
+  el.passSubmit.disabled = true;
+  try {
+    await api(API.password, { method: 'POST', body: { current: cur, next } });
+    el.passDlg.close();
+
+    // 改口令会换掉会话签名密钥；服务端已通过 Set-Cookie 下发新会话，
+    // 但保险起见重新校验一次，确认当前浏览器确实属于「已登录」。
+    let stillAuthed = false;
+    try {
+      const h = await api(API.health);
+      stillAuthed = h.session === 'authed';
+    } catch { /* 网络问题，按未确认处理 */ }
+
+    if (stillAuthed) {
+      toast('口令已更新，下次用新口令解锁');
+    } else {
+      // 没拿到新会话：别让用户以为还在编辑态里，直接退出去提示重新登录
+      setEditing(false);
+      toast('口令已更新，请用新口令重新解锁', 'error');
+    }
+    state.bootstrapPass = false;
+  } catch (e) {
+    el.passErr.hidden = false;
+    el.passErr.textContent =
+      e.code === 'bad_current' ? '当前口令不对' :
+      e.code === 'weak' ? '新口令太短，至少 6 位' :
+      (e.message || '保存失败');
+  } finally {
+    el.passSubmit.disabled = false;
+  }
+}
+
+/* ─────────── 事件绑定 ─────────── */
+
+el.spinBtn.addEventListener('click', spin);
+
+el.editToggle.addEventListener('click', () => {
+  if (state.editing) setEditing(false);
+  else enterEdit();
+});
+
+el.search.addEventListener('input', () => {
+  state.query = el.search.value;
+  el.list.scrollTop = 0;
+  invalidateList();
+  renderList();
+});
+
+/* 滚动：拖动手势期间标记为交互中，避免轮询恰好在这时重排列表 */
+el.list.addEventListener('scroll', () => {
+  markInteracting();
+  scheduleRender();
+}, { passive: true });
+
+// 触屏拖动 / 鼠标滚轮期间也算交互
+el.list.addEventListener('pointerdown', () => markInteracting(600), { passive: true });
+el.list.addEventListener('touchmove', () => markInteracting(600), { passive: true });
+el.list.addEventListener('wheel', () => markInteracting(400), { passive: true });
+
+el.pasteArea.addEventListener('input', () => {
+  const n = parseLines(el.pasteArea.value).length;
+  el.parseHint.innerHTML = n
+    ? `识别到 <strong>${n}</strong> 条，去重后入库`
+    : '支持批量粘贴';
+  try { localStorage.setItem(DRAFT_KEY, el.pasteArea.value); } catch {}
+});
+
+el.appendBtn.addEventListener('click', async () => {
+  const items = parseLines(el.pasteArea.value);
+  if (!items.length) { toast('先粘点东西进来', 'error'); return; }
+  await addTexts(items, 'append').then(() => {
+    el.pasteArea.value = '';
+    el.parseHint.textContent = '支持批量粘贴';
+    localStorage.removeItem(DRAFT_KEY);
+  }).catch(() => {});
+});
+
+el.replaceBtn.addEventListener('click', async () => {
+  const items = parseLines(el.pasteArea.value);
+  if (!items.length) { toast('先粘点东西进来', 'error'); return; }
+  await addTexts(items, 'replace').then(() => {
+    el.pasteArea.value = '';
+    el.parseHint.textContent = '支持批量粘贴';
+    localStorage.removeItem(DRAFT_KEY);
+  }).catch(() => {});
+});
+
+async function quickAdd() {
+  const v = el.quickAdd.value.trim();
+  if (!v) return;
+  el.quickAdd.value = '';
+  await addTexts([v], 'append').catch(() => {});
+  el.quickAdd.focus();
+}
+
+el.quickAddBtn.addEventListener('click', quickAdd);
+el.quickAdd.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); quickAdd(); }
+});
+
+el.batchEnable.addEventListener('click', () => batchOp('enable'));
+el.batchDisable.addEventListener('click', () => batchOp('disable'));
+el.batchDelete.addEventListener('click', () => batchOp('delete'));
+
+/* 分类 */
+el.batchTag.addEventListener('click', openTagPop);
+el.tagPopClose.addEventListener('click', () => { el.tagPop.hidden = true; });
+el.filterClear.addEventListener('click', () => {
+  state.activeTags.clear();
+  renderAll();
+});
+
+async function newTagFromInput() {
+  const name = el.tagNewInput.value.trim();
+  if (!name) return;
+  el.tagNewInput.value = '';
+  const ids = [...state.selected];
+  await createTag(name, ids);
+  if (ids.length) renderTagPopList(ids);
+  else renderFilters();
+}
+el.tagNewBtn.addEventListener('click', newTagFromInput);
+el.tagNewInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); newTagFromInput(); }
+});
+
+/* 分类管理对话框 */
+el.tagForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  submitTagDialog();
+});
+el.tagDlgCancel.addEventListener('click', () => el.tagDlg.close());
+el.tagDlgDelete.addEventListener('click', () => {
+  if (!tagDlgCtx) return;
+  deleteTag(tagDlgCtx.tag, tagDlgCtx.optionIds);
+});
+
+el.exportBtn.addEventListener('click', () => {
+  const items = activeOptions();
+  if (!items.length) { toast('没有可导出的选项', 'error'); return; }
+  const blob = new Blob([items.map((o) => o.text).join('\n')], {
+    type: 'text/plain;charset=utf-8',
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'options.txt';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+el.loginForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  doLogin(el.tokenInput.value.trim());
+});
+el.loginCancel.addEventListener('click', () => el.loginDlg.close());
+
+el.passBtn.addEventListener('click', openPassDialog);
+el.passCancel.addEventListener('click', () => el.passDlg.close());
+el.passForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  savePass();
+});
+
+// 回车提交，Esc 关闭
+el.passRepeat.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); savePass(); }
+});
+
+// 无内容时按空格不滚动，直接转
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space') return;
+  const t = e.target;
+  if (t.closest('input, textarea, [contenteditable], dialog')) return;
+  e.preventDefault();
+  spin();
+});
+
+/* ─────────── 启动 ─────────── */
+
+function boot() {
+  // 草稿回填
+  try {
+    const draft = localStorage.getItem(DRAFT_KEY);
+    if (draft) {
+      el.pasteArea.value = draft;
+      el.pasteArea.dispatchEvent(new Event('input'));
+    }
+  } catch {}
+
+  const cached = loadCache();
+  if (cached) {
+    renderAll();
+    setSync('local', '载入中');
+    if (el.skeleton) el.skeleton.hidden = true;   // 有缓存就不显示骨架
+  }
+  fitCanvas();
+  new ResizeObserver(() => fitCanvas()).observe(el.canvas);
+
+  // 链路慢时给个交代：8 秒还没拿到数据就把状态说明白，别让「载入中」无限转
+  const slowTimer = setTimeout(() => {
+    if (el.syncState.dataset.state === 'idle') {
+      setSync('local', '网络较慢 · 仍在加载');
+    }
+  }, 8000);
+
+  pull({ silent: cached }).finally(() => clearTimeout(slowTimer));
+  startPolling();
+
+  // 供自动化测试调用内部同步逻辑（不影响正常运行）
+  if (typeof window !== 'undefined') {
+    window.__pull = pull;
+    window.__state = state;
+  }
+}
+
+boot();
+
+</script>
+</body>
+</html>

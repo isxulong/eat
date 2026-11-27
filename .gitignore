@@ -60,3 +60,7 @@ Makefile
 node_modules/
 api_repo.json
 
+
+# 构建产物（node build.mjs 重新生成）
+# dist/ 保留入库：Pages Direct Upload 直接发布它
+
