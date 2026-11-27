@@ -116,15 +116,6 @@ function b64url(bytes) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function b64urlDecode(str) {
-  const s = str.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = s.length % 4 ? '='.repeat(4 - (s.length % 4)) : '';
-  const bin = atob(s + pad);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
 async function hmac(secret, payload) {
   const key = await crypto.subtle.importKey(
     'raw',

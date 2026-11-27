@@ -94,6 +94,23 @@ const server = http.createServer(async (req, res) => {
     revision++;
     return json(res, snapshot({ created: id }));
   }
+  if (p.startsWith('/api/tags/') && req.method === 'PATCH') {
+    const id = p.split('/').pop();
+    const body = await readBody(req);
+    const t = tags.find((x) => x.id === id);
+    if (!t) return json(res, { error: 'not_found', message: '没有这个分类' }, 404);
+    if (body.name != null) {
+      const name = String(body.name).trim().slice(0, 20);
+      if (!name) return json(res, { error: 'empty', message: '分类名不能为空' }, 400);
+      if (tags.some((x) => x.id !== id && x.name.toLowerCase() === name.toLowerCase())) {
+        return json(res, { error: 'duplicate', message: '这个标签已经有了' }, 409);
+      }
+      t.name = name;
+    }
+    if (body.color != null) t.color = String(body.color).slice(0, 20);
+    revision++;
+    return json(res, snapshot());
+  }
   if (p.startsWith('/api/tags/') && req.method === 'DELETE') {
     const id = p.split('/').pop();
     tags = tags.filter((t) => t.id !== id);

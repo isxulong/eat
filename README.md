@@ -34,6 +34,12 @@
 - 解锁编辑后点右上角「口令」，输入新口令两次即可
 - **立刻生效，不需要重新部署**，也不需要去 Cloudflare 控制台
 - 口令用 PBKDF2-SHA256（10 万次迭代）加盐后存进 D1，改了之后所有旧会话自动失效
+- 忘了口令：删掉 D1 `meta` 表里 `admin_pass_hash` / `admin_pass_salt` 两行，退回 `ADMIN_TOKEN` 引导值
+
+**管理分类**
+- 打标签浮层里每个分类右侧有铅笔按钮：点开可改名，或删除
+- 删除分类不会删掉选项，只解除关联
+- 窄屏下分类芯片横向可滚，不换行堆成两排
 
 **持久化**
 - 服务端 D1 是唯一真源
@@ -137,12 +143,32 @@ Pages 项目需要配置的环境变量：
 ## 测试
 
 ```bash
-node tests/e2e.mjs                    # 18 项接口契约测试（对生产跑）
-node tests/randomness.mjs             # 抽选随机性卡方检验
+# 接口契约（18 项，对生产跑）
+node tests/e2e.mjs
 BASE=http://127.0.0.1:8787 TOKEN=demo node tests/e2e.mjs
+
+# 抽选随机性：卡方拟合优度检验，5 类场景 × 20 万样本
+node tests/randomness.mjs
+
+# 界面行为（需要先起 dev-preview.mjs 和本地 Edge）
+node dev-preview.mjs &
+node tests/ui-tags.mjs        # 分类筛选：点选→转盘范围收缩→落点验证
+node tests/ui-tagman.mjs      # 分类改名/删除
+node tests/ui-rollback.mjs    # 写失败时乐观更新是否回滚、幽灵行是否残留
+node tests/ui-scroll.mjs      # 滚动 60 帧，逐帧检查行可见性（防闪烁回归）
+node tests/ui-spin.mjs        # 转盘落点与显示结果几何一致性
 ```
 
-`randomness.mjs` 直接复刻 `app.js` 的抽选函数跑 20 万次样本做卡方拟合优度检验，覆盖等权 / 带权重 / 极端权重 / 确定性序列四类场景；确定性序列那项要求三等分精确无偏（极差 0）。
+`randomness.mjs` 直接复刻 `app.js` 的抽选函数跑 20 万次样本做卡方拟合优度检验，覆盖等权 / 带权重 / 极端权重 / 确定性序列；确定性序列那项要求三等分精确无偏（实测极差 0），能证明分段逻辑本身没有取整偏差。
+
+`ui-scroll.mjs` 是防回归的关键：它模拟手指持续拖动，逐帧读取每一行的 `computedStyle.opacity`，断言 `worstInvisible = 0`。曾经因为行的入场动画在虚拟滚动重建时重放，导致拖动中文字始终透明。
+
+UI 测试通过 CDP 驱动 headless Edge，可用环境变量覆盖：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `EDGE` | Edge 默认安装路径 | 浏览器可执行文件 |
+| `OUT_DIR` | 系统临时目录 | 截图输出位置 |
 
 ## 目录
 
@@ -151,9 +177,11 @@ public/            静态站点（index.html / styles.css / app.js）
 functions/api/     Pages Functions，单文件路由
 schema.sql         完整建表
 migrations/        增量迁移
-tests/e2e.mjs      接口契约测试
-tests/randomness.mjs  随机性检验
-dev-preview.mjs    本地预览（mock 后端）
+tests/
+  e2e.mjs          接口契约测试（18 项）
+  randomness.mjs   抽选随机性卡方检验
+  ui-*.mjs         界面行为测试（CDP 驱动 headless Edge）
+dev-preview.mjs    本地预览（mock 后端，零依赖）
 docs/              技术方案、令牌创建指引
 ```
 
@@ -161,7 +189,8 @@ docs/              技术方案、令牌创建指引
 
 ## 已知边界
 
-- 中国大陆访问 `pages.dev` / 自定义域延时不稳（实测 1–3s 波动，偶发超时），是到 Cloudflare 边缘节点（被调度到 LAX/SJC）的链路问题，不是服务端——服务端稳定 140ms。绑自定义域后略有改善。若在意，唯一的根本解法是走 CN2/优化线路的代理。
+- 中国大陆访问 `pages.dev` / 自定义域延时不稳（实测 1–3s 波动，偶发超时），是到 Cloudflare 边缘节点（被调度到 LAX/SJC）的链路问题，不是服务端——服务端稳定 140ms。绑自定义域后略有改善。根本解法是走优化线路的代理。
 - 当前只有「一个转盘」，多转盘的表结构（`wheels.id`）已预留，界面未开放切换。
-- 编辑口令忘了无法自助找回，需要在 D1 里删除 `meta` 表中 `admin_pass_hash` / `admin_pass_salt` 两行，回退到 `ADMIN_TOKEN` 引导值。
+- 分类没有颜色选择器：`tags.color` 字段已支持，前端只用默认色点。需要区分配色时可调 `PATCH /api/tags/:id` 传 `color`。
+- `Math.random` 不是密码学随机源。对「今天吃什么」够用；若将来用于抽奖发奖这类需要不可预测性的场景，应换成 `crypto.getRandomValues`。
 

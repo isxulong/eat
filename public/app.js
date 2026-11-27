@@ -141,6 +141,14 @@ const el = {
   passCancel: $('#passCancel'),
   passSubmit: $('#passSubmit'),
   currentField: $('#currentField'),
+  tagDlg:     $('#tagDlg'),
+  tagForm:    $('#tagForm'),
+  tagDlgSub:  $('#tagDlgSub'),
+  tagDlgName: $('#tagDlgName'),
+  tagDlgErr:  $('#tagDlgErr'),
+  tagDlgSave: $('#tagDlgSave'),
+  tagDlgDelete:$('#tagDlgDelete'),
+  tagDlgCancel:$('#tagDlgCancel'),
   toast:      $('#toast'),
 };
 
@@ -895,6 +903,10 @@ function renderTagPopList(optionIds) {
     const all = owning === optionIds.length;
     const some = owning > 0 && !all;
 
+    // 每个分类是一个「芯片 + 编辑按钮」的组合，编辑态才能改名/删除
+    const wrap = document.createElement('span');
+    wrap.className = 'tagchip';
+
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'chip' + (all ? ' is-on' : '');
@@ -908,9 +920,101 @@ function renderTagPopList(optionIds) {
       await setOptionTags(optionIds, [t.id], mode);
       renderTagPopList(optionIds);
     });
-    frag.append(b);
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'tagchip__edit';
+    edit.setAttribute('aria-label', `管理分类 ${t.name}`);
+    edit.title = '改名 / 删除';
+    edit.innerHTML = '<svg class="i" aria-hidden="true"><use href="#i-edit"></use></svg>';
+    edit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openTagMenu(t, optionIds);
+    });
+
+    wrap.append(b, edit);
+    frag.append(wrap);
   }
   el.tagPopList.replaceChildren(frag);
+}
+
+/* ─────────── 管理单个分类：改名 / 删除 ─────────── */
+
+let tagDlgCtx = null;   // { tag, optionIds }
+
+function openTagMenu(tag, optionIds) {
+  tagDlgCtx = { tag, optionIds };
+  el.tagDlgErr.hidden = true;
+  el.tagDlgName.value = tag.name;
+  const used = state.options.filter((o) => (o.tags || []).includes(tag.id)).length;
+  el.tagDlgSub.textContent = used
+    ? `改名，或删掉这个分类。它目前关联 ${used} 个选项。`
+    : '改名，或删掉这个分类。它还没有关联任何选项。';
+  el.tagDlg.showModal();
+  setTimeout(() => { el.tagDlgName.focus(); el.tagDlgName.select(); }, 30);
+}
+
+async function submitTagDialog() {
+  if (!tagDlgCtx) return;
+  const { tag, optionIds } = tagDlgCtx;
+  const name = el.tagDlgName.value.trim();
+
+  if (!name) {
+    el.tagDlgErr.hidden = false;
+    el.tagDlgErr.textContent = '分类名不能为空';
+    return;
+  }
+  if (name === tag.name) { el.tagDlg.close(); return; }
+
+  el.tagDlgSave.disabled = true;
+  try {
+    await renameTag(tag, name, optionIds);
+    el.tagDlg.close();
+  } catch (e) {
+    el.tagDlgErr.hidden = false;
+    el.tagDlgErr.textContent = e.code === 'duplicate' ? '已经有同名分类了' : (e.message || '保存失败');
+  } finally {
+    el.tagDlgSave.disabled = false;
+  }
+}
+
+async function renameTag(tag, name, optionIds) {
+  await mutate(
+    () => api(`${API.tags}/${tag.id}`, { method: 'PATCH', body: { name } }),
+    {
+      label: '改分类名',
+      optimistic: { apply: () => { tag.name = name; } },
+    }
+  );
+  toast(`分类已改名为「${name}」`);
+  if (optionIds?.length) renderTagPopList(optionIds);
+}
+
+async function deleteTag(tag, optionIds) {
+  const used = state.options.filter((o) => (o.tags || []).includes(tag.id)).length;
+  const msg = used
+    ? `删除分类「${tag.name}」？\n\n有 ${used} 个选项属于它，删除后这些选项只是失去这个分类，不会被删掉。`
+    : `删除分类「${tag.name}」？`;
+  if (!confirm(msg)) return;
+
+  el.tagDlg.close();
+  await mutate(
+    () => api(`${API.tags}/${tag.id}`, { method: 'DELETE' }),
+    {
+      label: '删分类',
+      optimistic: {
+        apply: () => {
+          state.tags = state.tags.filter((x) => x.id !== tag.id);
+          state.activeTags.delete(tag.id);
+          for (const o of state.options) {
+            if (o.tags) o.tags = o.tags.filter((x) => x !== tag.id);
+          }
+        },
+      },
+    }
+  ).then(() => toast(`已删除分类「${tag.name}」`))
+   .catch(() => {});
+  if (optionIds?.length) renderTagPopList(optionIds);
 }
 
 /* ─────────── 编辑操作 ─────────── */
@@ -992,7 +1096,8 @@ async function addTexts(texts, mode = 'append', title) {
     weight: 1,
     disabled: 0,
     sort: baseSort + i,
-    _pending: true,
+    tags: [],          // 新加的项默认无分类
+    _pending: true,    // 仅用于显示「保存中」的下划线，服务端快照会把它覆盖掉
   }));
 
   const res = await mutate(
@@ -1003,6 +1108,8 @@ async function addTexts(texts, mode = 'append', title) {
     }
   );
 
+  // 成功路径下服务端快照已经替换了本地数组，_pending 自然消失。
+  // 失败路径 mutate 会回滚到操作前快照，临时行也一并撤销。
   const added = res?.added?.length ?? fresh.length;
   const skipped = res?.skipped ?? 0;
   toast(skipped ? `新增 ${added} 项，跳过重复 ${skipped} 项` : `新增 ${added} 项`);
@@ -1150,7 +1257,23 @@ async function savePass() {
   try {
     await api(API.password, { method: 'POST', body: { current: cur, next } });
     el.passDlg.close();
-    toast('口令已更新，下次用新口令解锁');
+
+    // 改口令会换掉会话签名密钥；服务端已通过 Set-Cookie 下发新会话，
+    // 但保险起见重新校验一次，确认当前浏览器确实属于「已登录」。
+    let stillAuthed = false;
+    try {
+      const h = await api(API.health);
+      stillAuthed = h.session === 'authed';
+    } catch { /* 网络问题，按未确认处理 */ }
+
+    if (stillAuthed) {
+      toast('口令已更新，下次用新口令解锁');
+    } else {
+      // 没拿到新会话：别让用户以为还在编辑态里，直接退出去提示重新登录
+      setEditing(false);
+      toast('口令已更新，请用新口令重新解锁', 'error');
+    }
+    state.bootstrapPass = false;
   } catch (e) {
     el.passErr.hidden = false;
     el.passErr.textContent =
@@ -1245,6 +1368,17 @@ async function newTagFromInput() {
 el.tagNewBtn.addEventListener('click', newTagFromInput);
 el.tagNewInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); newTagFromInput(); }
+});
+
+/* 分类管理对话框 */
+el.tagForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  submitTagDialog();
+});
+el.tagDlgCancel.addEventListener('click', () => el.tagDlg.close());
+el.tagDlgDelete.addEventListener('click', () => {
+  if (!tagDlgCtx) return;
+  deleteTag(tagDlgCtx.tag, tagDlgCtx.optionIds);
 });
 
 el.exportBtn.addEventListener('click', () => {
