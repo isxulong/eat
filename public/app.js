@@ -97,6 +97,7 @@ const el = {
   countLabel: $('#countLabel'),
   list:       $('#list'),
   empty:      $('#emptyState'),
+  skeleton:   $('#skeleton'),
   search:     $('#search'),
   panel:      document.querySelector('.panel'),
   composer:   $('#composer'),
@@ -260,30 +261,118 @@ function saveCache() {
 
 /* ─────────── 拉取 ─────────── */
 
+/**
+ * 暂时连不上但本地有缓存时使用。
+ * 措辞避免让人以为「看到的是副本」——内容就是真实数据，只是可能不是最新的。
+ * 同时记录失败次数，连续多次失败才提示，避免一次抖动就报警。
+ */
+let syncFailures = 0;
+function setyncOffline() {
+  syncFailures++;
+  const label = syncFailures >= 3 ? '连接不上 · 显示缓存' : '同步中断 · 显示缓存';
+  setSync('local', label);
+  el.syncState.title = '暂时连不上服务器，当前显示的是上次成功加载的内容';
+}
+
+/**
+ * 拉取快照。
+ *
+ * 三处关键修正（都来自真实反馈）：
+ *
+ * ① 网络异常与渲染异常分开处理。
+ *    原来 try 同时包住 fetch 和 renderAll，渲染一旦出错就被误判成
+ *    「网络失败」→ 顶部显示「离线副本」，实际网络好好的。
+ *
+ * ② 数据没变就不重绘。
+ *    原来每 20 秒轮询都无条件 renderAll()，即使用户什么都没改。
+ *    每次都 replaceChildren 重建 DOM → 正在滑动时被抽走 → 闪。
+ *    现在用内容指纹比对，只有真的变了才碰界面。
+ *
+ * ③ 用户正在滚动/拖动时不重建列表，等交互停下来再更新。
+ *
+ * ④ 任何一次成功都必须把状态恢复成「已同步」。
+ *    原来只在非 silent 时更新，导致轮询成功也清不掉上一次失败留下的提示。
+ */
 async function pull({ silent = false } = {}) {
   if (!silent) setSync('idle', '载入中');
+
+  let d;
   try {
-    const d = await api(API.wheel);
-    const changed =
-      !Array.isArray(state.options) ||
-      d.revision !== state.revision ||
-      d.options.length !== state.options.length;
-    state.options = d.options.map(normalize);
-    if (Array.isArray(d.tags)) state.tags = d.tags.map(normalizeTag);
-    state.revision = d.revision;
-    saveCache();
-    renderAll();
-    if (!silent) setSync('ok', '已同步');
-    return changed;
+    d = await api(API.wheel);
   } catch (e) {
+    // 只有这里才是真正的网络/服务异常
     if (state.options.length) {
-      setSync('local', '离线副本');
+      // 有缓存可用：说明是「暂时连不上，先显示上次的内容」
+      setyncOffline();
     } else {
       setSync('error', '连接失败');
-      toast(e.message, 'error');
     }
+    if (!silent) toast(e.message || '加载失败', 'error');
     return false;
   }
+
+  const nextOptions = d.options.map(normalize);
+  const nextTags = Array.isArray(d.tags) ? d.tags.map(normalizeTag) : state.tags;
+
+  // 内容指纹：id + 文本 + 启用位 + 分类，任意一项变化才需要重绘
+  const fingerprint = (opts, tags) =>
+    opts.length +
+    '|' + opts.map((o) => `${o.id}:${o.text}:${o.disabled}:${(o.tags || []).join('.')}`).join(',') +
+    '|' + tags.map((t) => `${t.id}:${t.name}`).join(',');
+
+  const prev = fingerprint(state.options, state.tags);
+  const next = fingerprint(nextOptions, nextTags);
+  const changed = prev !== next || d.revision !== state.revision;
+
+  state.options = nextOptions;
+  state.tags = nextTags;
+  state.revision = d.revision;
+  saveCache();
+
+  // 数据到手（哪怕是空列表）就收起首屏骨架
+  if (el.skeleton) el.skeleton.hidden = true;
+  el.list.setAttribute('aria-busy', 'false');
+
+  if (changed) {
+    // 用户正在拖动列表时先不动 DOM，等他松手（scroll 结束会再触发一次）
+    if (isInteracting()) {
+      pendingRender = true;
+    } else {
+      renderAll();
+    }
+  }
+
+  // 转盘项数、筛选芯片的计数也可能因标签变化而变，但那是轻量重算
+  if (!changed && !silent) renderAll();
+
+  // 只要这次成功拿到数据，就必须把状态恢复成「已同步」。
+  // 原来只在非 silent 时更新，导致轮询（silent）即使成功也清不掉
+  // 上一次失败留下的「离线副本」——网络早恢复了，提示还挂着。
+  syncFailures = 0;
+  el.syncState.title = '';
+  setSync('ok', changed ? '已更新' : '已同步');
+  return changed;
+}
+
+/* 交互状态：滚动惯性/手指拖动期间不重建列表 */
+let interacting = false;
+let interactTimer = 0;
+let pendingRender = false;
+
+function isInteracting() {
+  return interacting;
+}
+
+function markInteracting(ms = 220) {
+  interacting = true;
+  clearTimeout(interactTimer);
+  interactTimer = setTimeout(() => {
+    interacting = false;
+    if (pendingRender) {
+      pendingRender = false;
+      renderAll();
+    }
+  }, ms);
 }
 
 /**
@@ -618,12 +707,23 @@ function highlight(id) {
   }
 }
 
-/* ─────────── 列表渲染（窗口化） ─────────── */
+/* ─────────── 列表渲染（窗口化 + 增量更新） ─────────── */
 
 const ROW_H = 38;
 const OVERSCAN = 6;      // 视窗上下各多渲染几行，滚动手感更稳
 let renderRaf = 0;
-let lastRange = { start: -1, end: -1, len: -1, query: '', editing: null, rev: -1 };
+let lastSig = '';
+
+/**
+ * 已挂载的行：index -> <li>。
+ * 滚动时只增删「进入/离开窗口」的那几行，绝不清空重插。
+ *
+ * 为什么必须这样：
+ * replaceChildren 会把列表内容整体换掉，浏览器会把 scrollTop 重新
+ * clamp 到新的内容高度，滚动位置发生跳动 —— 用户看到的就是「闪」。
+ * 增量更新后，已有行连 DOM 节点都不换，滚动完全平稳。
+ */
+const mounted = new Map();
 
 function visibleOptions() {
   const q = state.query.trim().toLowerCase();
@@ -638,14 +738,24 @@ function windowRange(items, scrollTop, viewH) {
   return { start, end };
 }
 
+function ensureSpacer(heightPx) {
+  let sp = el.list.querySelector('.list__spacer');
+  if (!sp) {
+    sp = document.createElement('li');
+    sp.className = 'list__spacer';
+    sp.setAttribute('aria-hidden', 'true');
+    el.list.append(sp);
+  }
+  sp.style.height = `${heightPx}px`;
+}
+
 /**
  * 渲染列表。
  *
- * 关键：滚动时不要重建整段 DOM。
- * 原实现每次 scroll 都 replaceChildren 一遍，配合行的入场动画会让文字
- * 在拖动过程中反复回到 opacity:0（用户看到的就是「滑动时文字闪没」）。
- * 现在只在「可见区间真的变了」或「数据/查询/编辑态变了」时才重建；
- * 单纯滚动且区间未变时，直接返回。
+ * 三条硬约束（都由真实反馈换来）：
+ *  ① 滚动中不重建整段 DOM —— replaceChildren 会让 scrollTop 跳动
+ *  ② 内容没变不碰界面 —— 20 秒轮询每次都重绘会让正在看的列表闪一下
+ *  ③ 行不要代入场动画 —— 重建时重放会导致文字停在 opacity:0
  */
 function renderList() {
   const items = visibleOptions();
@@ -653,31 +763,60 @@ function renderList() {
   const viewH = el.list.clientHeight || 420;
   const { start, end } = windowRange(items, scrollTop, viewH);
 
-  const sig = `${start}:${end}:${items.length}:${state.query}:${state.editing ? 1 : 0}:${state.revision}:${state.tags.length}`;
-  if (sig === lastRange.sig) return;      // 没有任何变化，别碰 DOM
-  lastRange.sig = sig;
-
-  const frag = document.createDocumentFragment();
-  for (let i = start; i < end; i++) {
-    const row = buildRow(items[i], i);
-    row.style.top = `${i * ROW_H}px`;
-    frag.append(row);
+  // 有数据了就把骨架收起来
+  if (items.length && el.skeleton) {
+    el.skeleton.hidden = true;
+    el.list.setAttribute('aria-busy', 'false');
   }
+  const sig = `${start}:${end}:${items.length}:${state.query}:${state.editing ? 1 : 0}:${state.revision}:${state.tags.length}`;
+  if (sig === lastSig) return;
+  lastSig = sig;
 
   el.list.style.position = 'relative';
-  el.list.replaceChildren(frag);
+  ensureSpacer(items.length * ROW_H);
 
-  // 用一条不可见的占位撑出总高度，行本身绝对定位
-  const spacer = document.createElement('li');
-  spacer.className = 'list__spacer';
-  spacer.setAttribute('aria-hidden', 'true');
-  spacer.style.height = `${items.length * ROW_H}px`;
-  el.list.append(spacer);
+  // ① 先移除离开窗口的行
+  for (const [idx, node] of mounted) {
+    if (idx < start || idx >= end || idx >= items.length) {
+      node.remove();
+      mounted.delete(idx);
+    }
+  }
+
+  // ② 再补齐进入窗口的行；已存在的只在数据变化时更新内容
+  for (let i = start; i < end; i++) {
+    const o = items[i];
+    const existing = mounted.get(i);
+    if (existing && existing.dataset.id === o.id) {
+      // 同一行同一条数据：只同步可能变的视觉状态，不重建
+      existing.classList.toggle('is-off', !!o.disabled);
+      existing.classList.toggle('is-pending', !!o._pending);
+      const t = existing.querySelector('.row__text');
+      if (t && t.textContent !== o.text) t.textContent = o.text;
+      const chk = existing.querySelector('.row__check');
+      if (chk) chk.checked = state.selected.has(o.id);
+      continue;
+    }
+    if (existing) { existing.remove(); mounted.delete(i); }
+
+    const row = buildRow(o, i);
+    row.style.top = `${i * ROW_H}px`;
+    el.list.append(row);
+    mounted.set(i, row);
+  }
 
   el.empty.hidden = items.length > 0;
   el.countLabel.textContent = state.query
     ? `${items.length} / ${state.options.length}`
     : String(state.options.length);
+}
+
+/** 强制清空重来（数据整体替换、退出编辑、切换筛选时用） */
+function rebuildList() {
+  for (const [, node] of mounted) node.remove();
+  mounted.clear();
+  lastSig = '';
+  renderList();
 }
 
 function buildRow(o, i) {
@@ -776,9 +915,9 @@ function renderAll() {
   updateBatchBar();
 }
 
-/** 让下一次 renderList 一定重建 DOM */
+/** 让下一次 renderList 重新计算（不清空 DOM，只重置比对签名） */
 function invalidateList() {
-  lastRange.sig = '';
+  lastSig = '';
 }
 
 /* ─────────── 分类筛选 ─────────── */
@@ -1190,7 +1329,13 @@ function setEditing(on) {
     state.selected.clear();
     pull({ silent: true });          // 退出编辑同步一次，别人的改动立刻可见
   }
-  renderAll();
+  // 进出编辑态会增删行内的复选框/删除按钮，必须整段重建
+  el.hubCount.textContent = String(activeOptions().length);
+  drawWheel();
+  el.spinBtn.disabled = state.spinning || activeOptions().length === 0;
+  renderFilters();
+  rebuildList();
+  updateBatchBar();
   if (on) {
     toast('编辑已解锁');
     el.quickAdd.focus();
@@ -1301,7 +1446,16 @@ el.search.addEventListener('input', () => {
   renderList();
 });
 
-el.list.addEventListener('scroll', scheduleRender, { passive: true });
+/* 滚动：拖动手势期间标记为交互中，避免轮询恰好在这时重排列表 */
+el.list.addEventListener('scroll', () => {
+  markInteracting();
+  scheduleRender();
+}, { passive: true });
+
+// 触屏拖动 / 鼠标滚轮期间也算交互
+el.list.addEventListener('pointerdown', () => markInteracting(600), { passive: true });
+el.list.addEventListener('touchmove', () => markInteracting(600), { passive: true });
+el.list.addEventListener('wheel', () => markInteracting(400), { passive: true });
 
 el.pasteArea.addEventListener('input', () => {
   const n = parseLines(el.pasteArea.value).length;
@@ -1436,13 +1590,27 @@ function boot() {
   const cached = loadCache();
   if (cached) {
     renderAll();
-    setSync('local', '离线副本');
+    setSync('local', '载入中');
+    if (el.skeleton) el.skeleton.hidden = true;   // 有缓存就不显示骨架
   }
   fitCanvas();
   new ResizeObserver(() => fitCanvas()).observe(el.canvas);
 
-  pull({ silent: cached });
+  // 链路慢时给个交代：8 秒还没拿到数据就把状态说明白，别让「载入中」无限转
+  const slowTimer = setTimeout(() => {
+    if (el.syncState.dataset.state === 'idle') {
+      setSync('local', '网络较慢 · 仍在加载');
+    }
+  }, 8000);
+
+  pull({ silent: cached }).finally(() => clearTimeout(slowTimer));
   startPolling();
+
+  // 供自动化测试调用内部同步逻辑（不影响正常运行）
+  if (typeof window !== 'undefined') {
+    window.__pull = pull;
+    window.__state = state;
+  }
 }
 
 boot();

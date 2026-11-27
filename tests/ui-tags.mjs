@@ -110,7 +110,6 @@ async function main() {
   const spins = await evalJs(`
     (async () => {
       const out = [];
-fs.mkdirSync(OUT, { recursive: true });
       for (let i = 0; i < 8; i++) {
         document.querySelector('#spinBtn').click();
         await new Promise(r => setTimeout(r, 5200));

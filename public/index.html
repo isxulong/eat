@@ -112,7 +112,17 @@
     </div>
 
     <div class="panel__body">
-    <ul class="list" id="list" aria-label="选项列表"></ul>
+    <ul class="list" id="list" aria-label="选项列表" aria-busy="true"></ul>
+
+    <!-- 首屏骨架：数据没到之前先给出结构，避免一片空白 -->
+    <div class="skeleton" id="skeleton" aria-hidden="true">
+      <div class="skeleton__row" style="--w:62%"></div>
+      <div class="skeleton__row" style="--w:78%"></div>
+      <div class="skeleton__row" style="--w:48%"></div>
+      <div class="skeleton__row" style="--w:70%"></div>
+      <div class="skeleton__row" style="--w:55%"></div>
+      <div class="skeleton__row" style="--w:66%"></div>
+    </div>
     <div class="empty" id="emptyState" hidden>
       <p class="empty__title">还没有选项</p>
       <p class="empty__body">点右上角「编辑」，把候选都粘进来。</p>
